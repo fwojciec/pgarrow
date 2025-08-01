@@ -37,6 +37,36 @@ func NewPool(ctx context.Context, connString string) (*Pool, error) {
 	return &Pool{pool: pool}, nil
 }
 
+// NewPoolFromExisting creates a new PGArrow pool from an existing pgxpool.Pool.
+// This allows sharing a single connection pool between transactional (pgx) and
+// analytical (pgarrow) operations, reducing resource overhead and enabling
+// consistent connection configuration.
+//
+// The provided pool remains under the caller's management - calling Close() on
+// the PGArrow pool will NOT close the underlying pgx pool. The caller is
+// responsible for closing the original pgx pool when appropriate.
+//
+// This is particularly useful for services with mixed workloads:
+//
+//	// Create shared pgx pool
+//	pgxPool, err := pgxpool.New(ctx, connString)
+//	if err != nil {
+//	    return err
+//	}
+//	defer pgxPool.Close()
+//
+//	// Use for transactional operations
+//	conn, err := pgxPool.Acquire(ctx)
+//	// ... transactional work
+//
+//	// Use for analytical operations via pgarrow
+//	arrowPool := pgarrow.NewPoolFromExisting(pgxPool)
+//	reader, err := arrowPool.QueryArrow(ctx, "SELECT * FROM analytics_view")
+//	// ... analytical work
+func NewPoolFromExisting(pool *pgxpool.Pool) *Pool {
+	return &Pool{pool: pool}
+}
+
 // QueryArrow executes a PostgreSQL query and returns results as an Apache Arrow RecordReader.
 // This is the primary method for converting PostgreSQL data to Arrow format using
 // the binary COPY protocol for optimal performance.
@@ -162,6 +192,11 @@ func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql 
 // Close closes the pool and all its connections.
 // After calling Close, the pool cannot be used for further queries.
 // It's safe to call Close multiple times.
+//
+// IMPORTANT: If this Pool was created using NewPoolFromExisting(), calling
+// Close() will close the underlying pgx pool, which may affect other
+// components sharing the same pool. In such cases, the caller should manage
+// the pgx pool lifecycle directly instead of calling Close() on the PGArrow pool.
 //
 // This method should be called when the pool is no longer needed,
 // typically using defer after pool creation:

@@ -15,6 +15,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/fwojciec/pgarrow"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1377,4 +1378,155 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			assert.Equal(t, tt.expectedRows, totalRows, "Row count mismatch for test %s", tt.name)
 		})
 	}
+}
+
+// TestNewPoolFromExisting tests creating a pgarrow pool from an existing pgx pool
+func TestNewPoolFromExisting(t *testing.T) {
+	t.Parallel()
+
+	// Skip if no database URL available
+	databaseURL := getTestDatabaseURL(t)
+
+	ctx := context.Background()
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer func() {
+		alloc.AssertSize(t, 0)
+	}()
+
+	// Create random schema name for isolation
+	schemaName := fmt.Sprintf("test_%s_%d", randomID(), time.Now().UnixNano())
+
+	// Create the schema using a regular pgx connection
+	conn, err := pgx.Connect(ctx, databaseURL)
+	require.NoError(t, err, "should connect to database for schema creation")
+
+	_, err = conn.Exec(ctx, fmt.Sprintf("CREATE SCHEMA %s", schemaName))
+	require.NoError(t, err, "should create test schema")
+	conn.Close(ctx)
+
+	// Create connection config with search_path set to the test schema
+	connConfig, err := pgxpool.ParseConfig(databaseURL)
+	require.NoError(t, err, "should parse database URL")
+
+	// Set search_path to use our test schema first, then public
+	connConfig.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s,public", schemaName)
+
+	// Create pgx pool
+	pgxPool, err := pgxpool.NewWithConfig(ctx, connConfig)
+	require.NoError(t, err, "should create pgx pool")
+
+	// Create pgarrow Pool from existing pgx pool
+	pgarrowPool := pgarrow.NewPoolFromExisting(pgxPool)
+
+	// Cleanup function
+	cleanup := func() {
+		// Note: We don't call pgarrowPool.Close() since it would close the shared pgx pool
+		pgxPool.Close()
+
+		// Create a new connection for cleanup
+		cleanupConn, err := pgx.Connect(ctx, databaseURL)
+		if err != nil {
+			t.Logf("failed to connect for cleanup: %v", err)
+			return
+		}
+		defer cleanupConn.Close(ctx)
+
+		// Drop the schema and all its contents
+		_, err = cleanupConn.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName))
+		if err != nil {
+			t.Logf("failed to drop schema %s: %v", schemaName, err)
+		}
+	}
+	defer cleanup()
+
+	// Create test table using pgx pool directly
+	pgxConn, err := pgxPool.Acquire(ctx)
+	require.NoError(t, err, "should acquire connection from pgx pool")
+
+	_, err = pgxConn.Exec(ctx, `
+		CREATE TABLE shared_test (
+			id int4,
+			name text,
+			value float8
+		)
+	`)
+	require.NoError(t, err, "should create test table")
+
+	_, err = pgxConn.Exec(ctx, `
+		INSERT INTO shared_test (id, name, value) VALUES 
+		(1, 'first', 10.5),
+		(2, 'second', 20.7),
+		(3, 'third', 30.2)
+	`)
+	require.NoError(t, err, "should insert test data")
+
+	pgxConn.Release()
+
+	// Test that pgarrow pool can query the same data
+	reader, err := pgarrowPool.QueryArrow(ctx, "SELECT id, name, value FROM shared_test ORDER BY id")
+	require.NoError(t, err, "should execute arrow query")
+	require.NotNil(t, reader, "reader should not be nil")
+	defer reader.Release()
+
+	// Verify data
+	totalRows := int64(0)
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += record.NumRows()
+
+		assert.Equal(t, int64(3), record.NumCols())
+
+		// Verify column types
+		idCol, ok := record.Column(0).(*array.Int32)
+		require.True(t, ok, "should cast id column to Int32")
+		nameCol, ok := record.Column(1).(*array.String)
+		require.True(t, ok, "should cast name column to String")
+		valueCol, ok := record.Column(2).(*array.Float64)
+		require.True(t, ok, "should cast value column to Float64")
+
+		// Check data content
+		for i := range int(record.NumRows()) {
+			switch i {
+			case 0:
+				assert.Equal(t, int32(1), idCol.Value(i))
+				assert.Equal(t, "first", nameCol.Value(i))
+				assert.InDelta(t, 10.5, valueCol.Value(i), 1e-10)
+			case 1:
+				assert.Equal(t, int32(2), idCol.Value(i))
+				assert.Equal(t, "second", nameCol.Value(i))
+				assert.InDelta(t, 20.7, valueCol.Value(i), 1e-10)
+			case 2:
+				assert.Equal(t, int32(3), idCol.Value(i))
+				assert.Equal(t, "third", nameCol.Value(i))
+				assert.InDelta(t, 30.2, valueCol.Value(i), 1e-10)
+			}
+		}
+	}
+
+	require.NoError(t, reader.Err(), "reader should not have errors")
+	assert.Equal(t, int64(3), totalRows, "should read 3 rows")
+
+	// Test that both pgx and pgarrow can use the same pool concurrently
+	// Use pgx to insert more data
+	pgxConn, err = pgxPool.Acquire(ctx)
+	require.NoError(t, err, "should acquire connection from pgx pool again")
+
+	_, err = pgxConn.Exec(ctx, "INSERT INTO shared_test (id, name, value) VALUES (4, 'fourth', 40.9)")
+	require.NoError(t, err, "should insert additional data via pgx")
+
+	pgxConn.Release()
+
+	// Use pgarrow to read updated data
+	reader2, err := pgarrowPool.QueryArrow(ctx, "SELECT COUNT(*) as count FROM shared_test")
+	require.NoError(t, err, "should execute count query")
+	defer reader2.Release()
+
+	for reader2.Next() {
+		record := reader2.Record()
+		countCol, ok := record.Column(0).(*array.Int64)
+		require.True(t, ok, "should cast count column to Int64")
+		assert.Equal(t, int64(4), countCol.Value(0), "should have 4 rows after insert")
+	}
+
+	require.NoError(t, reader2.Err(), "count reader should not have errors")
 }
