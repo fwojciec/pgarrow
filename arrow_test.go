@@ -31,9 +31,6 @@ import (
 func TestCreateSchema(t *testing.T) {
 	t.Parallel()
 
-	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
-	t.Cleanup(func() { alloc.AssertSize(t, 0) })
-
 	tests := []struct {
 		name     string
 		columns  []pgarrow.ColumnInfo
@@ -387,4 +384,27 @@ func TestRecordBuilderMultipleRecords(t *testing.T) {
 	defer record2.Release()
 
 	assert.Equal(t, int64(2), record2.NumRows())
+}
+
+func TestRecordBuilderZeroColumns(t *testing.T) {
+	t.Parallel()
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	t.Cleanup(func() { alloc.AssertSize(t, 0) })
+
+	// Create schema with zero columns (empty schema)
+	schema := arrow.NewSchema([]arrow.Field{}, nil)
+
+	builder, err := pgarrow.NewRecordBuilder(schema, alloc)
+	require.NoError(t, err)
+	defer builder.Release()
+
+	// Create record with zero columns - this should not panic
+	record, err := builder.NewRecord()
+	require.NoError(t, err)
+	defer record.Release()
+
+	assert.Equal(t, int64(0), record.NumRows())
+	assert.Equal(t, int64(0), record.NumCols())
+	assert.True(t, record.Schema().Equal(schema))
 }
