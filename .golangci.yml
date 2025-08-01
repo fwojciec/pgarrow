@@ -1,0 +1,89 @@
+# Optimized for LLM agents - clear, actionable feedback
+version: "2"
+
+run:
+  go: "1.24"
+  build-tags:
+    - integration
+    - e2e
+  tests: true
+
+linters:
+  default: none  # Only use explicitly enabled linters
+  enable:
+    # Correctness - these catch real bugs
+    - errcheck      # Ensure errors are handled
+    - staticcheck   # Comprehensive correctness checks
+    - govet        # Go's official checker
+    - ineffassign  # Catch ineffective assignments
+    - unused       # Remove dead code
+    
+    # Code clarity
+    - unconvert    # Remove unnecessary conversions
+    - unparam      # Find unused parameters
+    
+    # Quality improvements
+    - prealloc     # Performance hints
+    - bodyclose    # Ensure HTTP bodies are closed
+    
+    # Architecture discipline
+    - gochecknoglobals  # Enforce no global state (Ben Johnson principle)
+    
+    # Testing standards
+    - testifylint   # Enforce testify usage patterns
+    - thelper       # Ensure test helpers use t.Helper()
+    - paralleltest  # Detect missing t.Parallel() in tests
+    - tparallel     # Detect inappropriate t.Parallel() usage
+    - testpackage   # Enforce separate test packages
+    
+    # Function length for AI-friendly chunking
+    - funlen        # Keep functions under 50 lines for AI analysis
+    
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+    testifylint:
+      enable-all: true  # Enable all testify checks
+    funlen:
+      lines: 50         # Max 50 lines to fit in AI analysis chunks
+      statements: 40    # Max 40 statements to avoid complexity
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - govet
+        text: shadows declaration
+        source: err :=
+      - linters:
+          - gochecknoglobals
+        path: _test\.go
+      - linters:
+          - gochecknoglobals
+        path: cmd/.*/main\.go
+      - linters:
+          - funlen
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
