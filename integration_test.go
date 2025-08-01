@@ -177,35 +177,55 @@ func TestPoolQueryArrowBasicIntegration(t *testing.T) {
 	sql := "SELECT id, name, active FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) ORDER BY id"
 
 	// Execute QueryArrow
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
-
-	// Verify results
-	assert.Equal(t, int64(2), record.NumRows())
-	assert.Equal(t, int64(3), record.NumCols())
+	require.NotNil(t, reader)
+	defer reader.Release()
 
 	// Verify schema
-	schema := record.Schema()
+	schema := reader.Schema()
 	assert.Equal(t, "id", schema.Field(0).Name)
 	assert.Equal(t, "name", schema.Field(1).Name)
 	assert.Equal(t, "active", schema.Field(2).Name)
 
-	// Verify data values
-	idCol, ok := record.Column(0).(*array.Int32)
-	require.True(t, ok)
-	nameCol, ok := record.Column(1).(*array.String)
-	require.True(t, ok)
-	activeCol, ok := record.Column(2).(*array.Boolean)
-	require.True(t, ok)
+	// Read all batches
+	totalRows := int64(0)
+	batchCount := 0
+	for reader.Next() {
+		batchCount++
+		record := reader.Record()
+		totalRows += record.NumRows()
 
-	assert.Equal(t, int32(1), idCol.Value(0))
-	assert.Equal(t, int32(2), idCol.Value(1))
-	assert.Equal(t, "first", nameCol.Value(0))
-	assert.Equal(t, "second", nameCol.Value(1))
-	assert.True(t, activeCol.Value(0))
-	assert.False(t, activeCol.Value(1))
+		// Verify batch structure
+		assert.Equal(t, int64(3), record.NumCols())
+
+		// Verify data values for each batch
+		idCol, ok := record.Column(0).(*array.Int32)
+		require.True(t, ok)
+		nameCol, ok := record.Column(1).(*array.String)
+		require.True(t, ok)
+		activeCol, ok := record.Column(2).(*array.Boolean)
+		require.True(t, ok)
+
+		// Verify the specific data (this test has 2 rows)
+		if record.NumRows() >= 1 {
+			assert.Equal(t, int32(1), idCol.Value(0))
+			assert.Equal(t, "first", nameCol.Value(0))
+			assert.True(t, activeCol.Value(0))
+		}
+		if record.NumRows() >= 2 {
+			assert.Equal(t, int32(2), idCol.Value(1))
+			assert.Equal(t, "second", nameCol.Value(1))
+			assert.False(t, activeCol.Value(1))
+		}
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
+
+	// Verify total results
+	assert.Equal(t, int64(2), totalRows)
+	assert.GreaterOrEqual(t, batchCount, 1)
 }
 
 func TestPoolQueryArrowAllDataTypesIntegration(t *testing.T) {
@@ -220,48 +240,74 @@ func TestPoolQueryArrowAllDataTypesIntegration(t *testing.T) {
 	ctx := context.Background()
 	sql := "SELECT col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text FROM (VALUES (true, 100::int2, 1000::int4, 10000::int8, 3.14::float4, 2.71828::float8, 'hello'), (false, 200::int2, 2000::int4, 20000::int8, 6.28::float4, 1.41421::float8, 'world'), (null, null, null, null, null, null, null)) AS test_all_types(col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text) WHERE col_bool IS NOT NULL ORDER BY col_int2"
 
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
+	require.NotNil(t, reader)
+	defer reader.Release()
+
+	totalRows := int64(0)
+	var boolCol *array.Boolean
+	var int2Col *array.Int16
+	var int4Col *array.Int32
+	var int8Col *array.Int64
+	var float4Col *array.Float32
+	var float8Col *array.Float64
+	var textCol *array.String
+
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += record.NumRows()
+
+		// Verify we got the expected columns
+		assert.Equal(t, int64(7), record.NumCols())
+
+		// Extract column references for validation
+		if boolCol == nil {
+			var ok bool
+			boolCol, ok = record.Column(0).(*array.Boolean)
+			require.True(t, ok)
+			int2Col, ok = record.Column(1).(*array.Int16)
+			require.True(t, ok)
+			int4Col, ok = record.Column(2).(*array.Int32)
+			require.True(t, ok)
+			int8Col, ok = record.Column(3).(*array.Int64)
+			require.True(t, ok)
+			float4Col, ok = record.Column(4).(*array.Float32)
+			require.True(t, ok)
+			float8Col, ok = record.Column(5).(*array.Float64)
+			require.True(t, ok)
+			textCol, ok = record.Column(6).(*array.String)
+			require.True(t, ok)
+		}
+
+		// Verify data values within each batch
+		for i := range int(record.NumRows()) {
+			switch i {
+			case 0: // First row values
+				assert.True(t, boolCol.Value(i))
+				assert.Equal(t, int16(100), int2Col.Value(i))
+				assert.Equal(t, int32(1000), int4Col.Value(i))
+				assert.Equal(t, int64(10000), int8Col.Value(i))
+				assert.InDelta(t, float32(3.14), float4Col.Value(i), 0.001)
+				assert.InDelta(t, float64(2.71828), float8Col.Value(i), 0.00001)
+				assert.Equal(t, "hello", textCol.Value(i))
+			case 1: // Second row values
+				assert.False(t, boolCol.Value(i))
+				assert.Equal(t, int16(200), int2Col.Value(i))
+				assert.Equal(t, int32(2000), int4Col.Value(i))
+				assert.Equal(t, int64(20000), int8Col.Value(i))
+				assert.InDelta(t, float32(6.28), float4Col.Value(i), 0.001)
+				assert.InDelta(t, float64(1.41421), float8Col.Value(i), 0.00001)
+				assert.Equal(t, "world", textCol.Value(i))
+			}
+		}
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
 
 	// Verify we got the 2 non-null rows
-	assert.Equal(t, int64(2), record.NumRows())
-	assert.Equal(t, int64(7), record.NumCols())
-
-	// Verify all columns have correct types and values
-	boolCol, ok := record.Column(0).(*array.Boolean)
-	require.True(t, ok)
-	int2Col, ok := record.Column(1).(*array.Int16)
-	require.True(t, ok)
-	int4Col, ok := record.Column(2).(*array.Int32)
-	require.True(t, ok)
-	int8Col, ok := record.Column(3).(*array.Int64)
-	require.True(t, ok)
-	float4Col, ok := record.Column(4).(*array.Float32)
-	require.True(t, ok)
-	float8Col, ok := record.Column(5).(*array.Float64)
-	require.True(t, ok)
-	textCol, ok := record.Column(6).(*array.String)
-	require.True(t, ok)
-
-	// Verify first row values
-	assert.True(t, boolCol.Value(0))
-	assert.Equal(t, int16(100), int2Col.Value(0))
-	assert.Equal(t, int32(1000), int4Col.Value(0))
-	assert.Equal(t, int64(10000), int8Col.Value(0))
-	assert.InDelta(t, float32(3.14), float4Col.Value(0), 0.001)
-	assert.InDelta(t, float64(2.71828), float8Col.Value(0), 0.00001)
-	assert.Equal(t, "hello", textCol.Value(0))
-
-	// Verify second row values
-	assert.False(t, boolCol.Value(1))
-	assert.Equal(t, int16(200), int2Col.Value(1))
-	assert.Equal(t, int32(2000), int4Col.Value(1))
-	assert.Equal(t, int64(20000), int8Col.Value(1))
-	assert.InDelta(t, float32(6.28), float4Col.Value(1), 0.001)
-	assert.InDelta(t, float64(1.41421), float8Col.Value(1), 0.00001)
-	assert.Equal(t, "world", textCol.Value(1))
+	assert.Equal(t, int64(2), totalRows)
 }
 
 func TestPoolQueryArrowParameterizedQueryIntegration(t *testing.T) {
@@ -277,9 +323,9 @@ func TestPoolQueryArrowParameterizedQueryIntegration(t *testing.T) {
 	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id = $1 ORDER BY id"
 
 	// This should fail with a clear error message about parameterized queries not being supported
-	record, err := pool.QueryArrow(ctx, sql, 2)
+	reader, err := pool.QueryArrow(ctx, sql, 2)
 	require.Error(t, err)
-	assert.Nil(t, record)
+	assert.Nil(t, reader)
 	assert.Contains(t, err.Error(), "parameterized queries are not supported")
 }
 
@@ -295,14 +341,31 @@ func TestPoolQueryArrowEmptyResultIntegration(t *testing.T) {
 	ctx := context.Background()
 	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id > 100"
 
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
+	require.NotNil(t, reader)
+	defer reader.Release()
+
+	// Verify schema even for empty results
+	schema := reader.Schema()
+	assert.Equal(t, "id", schema.Field(0).Name)
+	assert.Equal(t, "name", schema.Field(1).Name)
+
+	totalRows := int64(0)
+	batchCount := 0
+	for reader.Next() {
+		batchCount++
+		record := reader.Record()
+		totalRows += record.NumRows()
+		// Should get empty result
+		assert.Equal(t, int64(2), record.NumCols())
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
 
 	// Should get empty result
-	assert.Equal(t, int64(0), record.NumRows())
-	assert.Equal(t, int64(2), record.NumCols())
+	assert.Equal(t, int64(0), totalRows)
 }
 
 func TestPoolQueryArrowNullHandlingIntegration(t *testing.T) {
@@ -317,19 +380,32 @@ func TestPoolQueryArrowNullHandlingIntegration(t *testing.T) {
 	ctx := context.Background()
 	sql := "SELECT col_bool, col_int4, col_text FROM (VALUES (true, 100::int2, 1000::int4, 10000::int8, 3.14::float4, 2.71828::float8, 'hello'), (false, 200::int2, 2000::int4, 20000::int8, 6.28::float4, 1.41421::float8, 'world'), (null, null, null, null, null, null, null)) AS test_all_types(col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text) WHERE col_bool IS NULL"
 
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
+	require.NotNil(t, reader)
+	defer reader.Release()
+
+	totalRows := int64(0)
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += record.NumRows()
+
+		// Should get expected column count
+		assert.Equal(t, int64(3), record.NumCols())
+
+		// Verify all values are null for each row in the batch
+		for row := range int(record.NumRows()) {
+			for col := range int(record.NumCols()) {
+				assert.False(t, record.Column(col).IsValid(row), "Column %d, row %d should be NULL", col, row)
+			}
+		}
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
 
 	// Should get the null row
-	assert.Equal(t, int64(1), record.NumRows())
-	assert.Equal(t, int64(3), record.NumCols())
-
-	// Verify all values are null
-	for i := range int(record.NumCols()) {
-		assert.False(t, record.Column(i).IsValid(0), "Column %d should be NULL", i)
-	}
+	assert.Equal(t, int64(1), totalRows)
 }
 
 // Error handling tests
@@ -343,9 +419,9 @@ func TestPoolQueryArrowInvalidSQLIntegration(t *testing.T) {
 	ctx := context.Background()
 	sql := "SELECT * FROM nonexistent_table"
 
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
-	assert.Nil(t, record)
+	assert.Nil(t, reader)
 	assert.Contains(t, err.Error(), "failed to prepare query")
 }
 
@@ -358,9 +434,9 @@ func TestPoolQueryArrowSyntaxErrorIntegration(t *testing.T) {
 	ctx := context.Background()
 	sql := "SELECT * FROM WHERE"
 
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
-	assert.Nil(t, record)
+	assert.Nil(t, reader)
 	assert.Contains(t, err.Error(), "failed to prepare query")
 }
 
@@ -376,9 +452,9 @@ func TestPoolQueryArrowConnectionErrorIntegration(t *testing.T) {
 	defer pool.Close()
 
 	sql := "SELECT 1"
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
-	assert.Nil(t, record)
+	assert.Nil(t, reader)
 	assert.Contains(t, err.Error(), "failed to acquire connection")
 }
 
@@ -393,9 +469,9 @@ func TestPoolQueryArrowCancelledContextIntegration(t *testing.T) {
 	cancel() // Cancel immediately
 
 	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active)"
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
-	assert.Nil(t, record)
+	assert.Nil(t, reader)
 	assert.Contains(t, err.Error(), "context canceled")
 }
 
@@ -409,9 +485,9 @@ func TestPoolQueryArrowInvalidParametersIntegration(t *testing.T) {
 	sql := "SELECT id FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id = $1"
 
 	// Pass wrong number of parameters
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
-	assert.Nil(t, record)
+	assert.Nil(t, reader)
 }
 
 // Resource cleanup verification tests
@@ -429,9 +505,9 @@ func TestPoolQueryArrowResourceCleanupOnErrorIntegration(t *testing.T) {
 
 	// Execute invalid query - should clean up resources properly
 	sql := "SELECT * FROM nonexistent_table"
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
-	assert.Nil(t, record)
+	assert.Nil(t, reader)
 
 	// Memory allocator should show no leaks
 	// (verified by alloc.AssertSize(t, 0) in defer)
@@ -451,15 +527,24 @@ func TestPoolQueryArrowMultipleCallsResourceCleanupIntegration(t *testing.T) {
 
 	// Execute multiple queries to verify proper resource cleanup
 	for range 10 {
-		record, err := pool.QueryArrow(ctx, sql)
+		reader, err := pool.QueryArrow(ctx, sql)
 		require.NoError(t, err)
-		require.NotNil(t, record)
+		require.NotNil(t, reader)
+
+		totalRows := int64(0)
+		for reader.Next() {
+			record := reader.Record()
+			totalRows += record.NumRows()
+		}
+
+		// Check for reader errors
+		require.NoError(t, reader.Err())
 
 		// Verify data integrity
-		assert.Equal(t, int64(2), record.NumRows())
+		assert.Equal(t, int64(2), totalRows)
 
-		// Release record immediately
-		record.Release()
+		// Release reader immediately
+		reader.Release()
 	}
 
 	// Memory allocator should show no leaks after all releases
@@ -481,19 +566,30 @@ func TestPoolQueryArrowEmptyResultSetIntegration(t *testing.T) {
 
 	// Query that returns no rows but has valid schema
 	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id > 1000"
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
+	require.NotNil(t, reader)
+	defer reader.Release()
+
+	// Schema should still be valid even for empty results
+	schema := reader.Schema()
+	assert.NotNil(t, schema)
+	assert.Equal(t, "id", schema.Field(0).Name)
+	assert.Equal(t, "name", schema.Field(1).Name)
+
+	totalRows := int64(0)
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += record.NumRows()
+		// Should have expected column count
+		assert.Equal(t, int64(2), record.NumCols())
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
 
 	// Should have schema but no rows
-	assert.Equal(t, int64(0), record.NumRows())
-	assert.Equal(t, int64(2), record.NumCols())
-	assert.NotNil(t, record.Schema())
-
-	// Schema should still be valid
-	assert.Equal(t, "id", record.Schema().Field(0).Name)
-	assert.Equal(t, "name", record.Schema().Field(1).Name)
+	assert.Equal(t, int64(0), totalRows)
 }
 
 func TestPoolQueryArrowLargeResultSetIntegration(t *testing.T) {
@@ -516,37 +612,75 @@ func TestPoolQueryArrowLargeResultSetIntegration(t *testing.T) {
 			(i * 1.5)::float8 as score
 		FROM generate_series(1, 250) i
 	`
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
+	require.NotNil(t, reader)
+	defer reader.Release()
+
+	totalRows := int64(0)
+	var firstIDVal int32
+	var firstNameVal string
+	var firstActiveVal bool
+	var firstScoreVal float64
+	var lastIDVal int32
+	var lastNameVal string
+	var lastActiveVal bool
+	var lastScoreVal float64
+	firstRowProcessed := false
+
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += record.NumRows()
+
+		// Verify expected column count
+		assert.Equal(t, int64(4), record.NumCols())
+
+		// Extract columns for data verification
+		idCol, ok := record.Column(0).(*array.Int32)
+		require.True(t, ok, "Failed to cast column 0 to Int32")
+		nameCol, ok := record.Column(1).(*array.String)
+		require.True(t, ok, "Failed to cast column 1 to String")
+		activeCol, ok := record.Column(2).(*array.Boolean)
+		require.True(t, ok, "Failed to cast column 2 to Boolean")
+		scoreCol, ok := record.Column(3).(*array.Float64)
+		require.True(t, ok, "Failed to cast column 3 to Float64")
+
+		// Capture first row data
+		if !firstRowProcessed && record.NumRows() > 0 {
+			firstIDVal = idCol.Value(0)
+			firstNameVal = nameCol.Value(0)
+			firstActiveVal = activeCol.Value(0)
+			firstScoreVal = scoreCol.Value(0)
+			firstRowProcessed = true
+		}
+
+		// Capture last row data from this batch
+		if record.NumRows() > 0 {
+			lastIdx := int(record.NumRows()) - 1
+			lastIDVal = idCol.Value(lastIdx)
+			lastNameVal = nameCol.Value(lastIdx)
+			lastActiveVal = activeCol.Value(lastIdx)
+			lastScoreVal = scoreCol.Value(lastIdx)
+		}
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
 
 	// Verify large result set
-	assert.Equal(t, int64(250), record.NumRows())
-	assert.Equal(t, int64(4), record.NumCols())
+	assert.Equal(t, int64(250), totalRows)
 
-	// Verify data integrity for first and last rows
-	idCol, ok := record.Column(0).(*array.Int32)
-	require.True(t, ok, "Failed to cast column 0 to Int32")
-	nameCol, ok := record.Column(1).(*array.String)
-	require.True(t, ok, "Failed to cast column 1 to String")
-	activeCol, ok := record.Column(2).(*array.Boolean)
-	require.True(t, ok, "Failed to cast column 2 to Boolean")
-	scoreCol, ok := record.Column(3).(*array.Float64)
-	require.True(t, ok, "Failed to cast column 3 to Float64")
+	// Verify first row data
+	assert.Equal(t, int32(1), firstIDVal)
+	assert.Equal(t, "user_1", firstNameVal)
+	assert.False(t, firstActiveVal) // 1 % 2 != 0
+	assert.InDelta(t, 1.5, firstScoreVal, 0.01)
 
-	// First row
-	assert.Equal(t, int32(1), idCol.Value(0))
-	assert.Equal(t, "user_1", nameCol.Value(0))
-	assert.False(t, activeCol.Value(0)) // 1 % 2 != 0
-	assert.InDelta(t, 1.5, scoreCol.Value(0), 0.01)
-
-	// Last row
-	lastIdx := 249
-	assert.Equal(t, int32(250), idCol.Value(lastIdx))
-	assert.Equal(t, "user_250", nameCol.Value(lastIdx))
-	assert.True(t, activeCol.Value(lastIdx))                // 250 % 2 = 0
-	assert.InDelta(t, 375.0, scoreCol.Value(lastIdx), 0.01) // 250 * 1.5
+	// Verify last row data
+	assert.Equal(t, int32(250), lastIDVal)
+	assert.Equal(t, "user_250", lastNameVal)
+	assert.True(t, lastActiveVal)                // 250 % 2 = 0
+	assert.InDelta(t, 375.0, lastScoreVal, 0.01) // 250 * 1.5
 }
 
 func TestPoolQueryArrowMixedTypesWithNullsIntegration(t *testing.T) {
@@ -570,48 +704,73 @@ func TestPoolQueryArrowMixedTypesWithNullsIntegration(t *testing.T) {
 			(5, '', 0.0::float8, false, 0::int2, 0::int8)
 		) AS mixed_data(id, name, score, active, small_num, big_num)
 	`
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
+	require.NotNil(t, reader)
+	defer reader.Release()
 
-	assert.Equal(t, int64(5), record.NumRows())
-	assert.Equal(t, int64(6), record.NumCols())
+	totalRows := int64(0)
+	var idCol *array.Int32
+	var nameCol *array.String
+	var scoreCol *array.Float64
+	var activeCol *array.Boolean
+	var smallCol *array.Int16
+	var bigCol *array.Int64
 
-	// Extract all columns
-	idCol, ok := record.Column(0).(*array.Int32)
-	require.True(t, ok, "Failed to cast column 0 to Int32")
-	nameCol, ok := record.Column(1).(*array.String)
-	require.True(t, ok, "Failed to cast column 1 to String")
-	scoreCol, ok := record.Column(2).(*array.Float64)
-	require.True(t, ok, "Failed to cast column 2 to Float64")
-	activeCol, ok := record.Column(3).(*array.Boolean)
-	require.True(t, ok, "Failed to cast column 3 to Boolean")
-	smallCol, ok := record.Column(4).(*array.Int16)
-	require.True(t, ok, "Failed to cast column 4 to Int16")
-	bigCol, ok := record.Column(5).(*array.Int64)
-	require.True(t, ok, "Failed to cast column 5 to Int64")
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += record.NumRows()
 
-	// Verify NULL handling in each column
-	assert.False(t, idCol.IsNull(0))    // Row 0: id=1
-	assert.True(t, nameCol.IsNull(1))   // Row 1: name=NULL
-	assert.True(t, idCol.IsNull(2))     // Row 2: id=NULL
-	assert.True(t, scoreCol.IsNull(2))  // Row 2: score=NULL
-	assert.True(t, activeCol.IsNull(3)) // Row 3: active=NULL
-	assert.True(t, smallCol.IsNull(1))  // Row 1: small_num=NULL
-	assert.True(t, bigCol.IsNull(2))    // Row 2: big_num=NULL
+		assert.Equal(t, int64(6), record.NumCols())
 
-	// Verify non-NULL values
-	assert.Equal(t, int32(1), idCol.Value(0))
-	assert.Equal(t, "Alice", nameCol.Value(0))
-	assert.InDelta(t, 25.5, scoreCol.Value(0), 0.01)
-	assert.True(t, activeCol.Value(0))
-	assert.Equal(t, int16(100), smallCol.Value(0))
-	assert.Equal(t, int64(1000), bigCol.Value(0))
+		// Extract all columns (only once)
+		if idCol == nil {
+			var ok bool
+			idCol, ok = record.Column(0).(*array.Int32)
+			require.True(t, ok, "Failed to cast column 0 to Int32")
+			nameCol, ok = record.Column(1).(*array.String)
+			require.True(t, ok, "Failed to cast column 1 to String")
+			scoreCol, ok = record.Column(2).(*array.Float64)
+			require.True(t, ok, "Failed to cast column 2 to Float64")
+			activeCol, ok = record.Column(3).(*array.Boolean)
+			require.True(t, ok, "Failed to cast column 3 to Boolean")
+			smallCol, ok = record.Column(4).(*array.Int16)
+			require.True(t, ok, "Failed to cast column 4 to Int16")
+			bigCol, ok = record.Column(5).(*array.Int64)
+			require.True(t, ok, "Failed to cast column 5 to Int64")
+		}
 
-	// Verify edge case: empty string vs NULL
-	assert.False(t, nameCol.IsNull(4)) // Row 4: name='' (empty, not NULL)
-	assert.Empty(t, nameCol.Value(4))
+		// Validate data within each batch
+		for i := range int(record.NumRows()) {
+			switch i {
+			case 0: // Row 0: all non-NULL values
+				assert.False(t, idCol.IsNull(i))
+				assert.Equal(t, int32(1), idCol.Value(i))
+				assert.Equal(t, "Alice", nameCol.Value(i))
+				assert.InDelta(t, 25.5, scoreCol.Value(i), 0.01)
+				assert.True(t, activeCol.Value(i))
+				assert.Equal(t, int16(100), smallCol.Value(i))
+				assert.Equal(t, int64(1000), bigCol.Value(i))
+			case 1: // Row 1: name=NULL, small_num=NULL
+				assert.True(t, nameCol.IsNull(i))
+				assert.True(t, smallCol.IsNull(i))
+			case 2: // Row 2: id=NULL, score=NULL, big_num=NULL
+				assert.True(t, idCol.IsNull(i))
+				assert.True(t, scoreCol.IsNull(i))
+				assert.True(t, bigCol.IsNull(i))
+			case 3: // Row 3: active=NULL
+				assert.True(t, activeCol.IsNull(i))
+			case 4: // Row 4: empty string vs NULL
+				assert.False(t, nameCol.IsNull(i)) // name='' (empty, not NULL)
+				assert.Empty(t, nameCol.Value(i))
+			}
+		}
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
+
+	assert.Equal(t, int64(5), totalRows)
 }
 
 func TestPoolQueryArrowBadConnectionErrorIntegration(t *testing.T) {
@@ -631,10 +790,10 @@ func TestPoolQueryArrowBadConnectionErrorIntegration(t *testing.T) {
 
 	ctx := context.Background()
 	sql := "SELECT 1"
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 
 	require.Error(t, err)
-	assert.Nil(t, record)
+	assert.Nil(t, reader)
 	assert.Contains(t, err.Error(), "connect")
 }
 
@@ -672,9 +831,9 @@ func TestPoolQueryArrowInvalidSQLErrorIntegration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			record, err := pool.QueryArrow(ctx, tc.sql)
+			reader, err := pool.QueryArrow(ctx, tc.sql)
 			require.Error(t, err, "should fail for: %s", tc.sql)
-			assert.Nil(t, record)
+			assert.Nil(t, reader)
 		})
 	}
 }
@@ -704,16 +863,13 @@ func TestPoolQueryArrowAllSupportedTypesEndToEndIntegration(t *testing.T) {
 		) AS all_types(col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text)
 	`
 
-	record, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
-
-	assert.Equal(t, int64(4), record.NumRows())
-	assert.Equal(t, int64(7), record.NumCols())
+	require.NotNil(t, reader)
+	defer reader.Release()
 
 	// Verify schema matches expected Arrow types
-	schema := record.Schema()
+	schema := reader.Schema()
 	assert.Equal(t, "col_bool", schema.Field(0).Name)
 	assert.Equal(t, "col_int2", schema.Field(1).Name)
 	assert.Equal(t, "col_int4", schema.Field(2).Name)
@@ -722,48 +878,75 @@ func TestPoolQueryArrowAllSupportedTypesEndToEndIntegration(t *testing.T) {
 	assert.Equal(t, "col_float8", schema.Field(5).Name)
 	assert.Equal(t, "col_text", schema.Field(6).Name)
 
-	// Extract typed columns
-	boolCol, ok := record.Column(0).(*array.Boolean)
-	require.True(t, ok, "Failed to cast column 0 to Boolean")
-	int2Col, ok := record.Column(1).(*array.Int16)
-	require.True(t, ok, "Failed to cast column 1 to Int16")
-	int4Col, ok := record.Column(2).(*array.Int32)
-	require.True(t, ok, "Failed to cast column 2 to Int32")
-	int8Col, ok := record.Column(3).(*array.Int64)
-	require.True(t, ok, "Failed to cast column 3 to Int64")
-	float4Col, ok := record.Column(4).(*array.Float32)
-	require.True(t, ok, "Failed to cast column 4 to Float32")
-	float8Col, ok := record.Column(5).(*array.Float64)
-	require.True(t, ok, "Failed to cast column 5 to Float64")
-	textCol, ok := record.Column(6).(*array.String)
-	require.True(t, ok, "Failed to cast column 6 to String")
+	totalRows := int64(0)
+	var boolCol *array.Boolean
+	var int2Col *array.Int16
+	var int4Col *array.Int32
+	var int8Col *array.Int64
+	var float4Col *array.Float32
+	var float8Col *array.Float64
+	var textCol *array.String
 
-	// Verify first row (normal values)
-	assert.True(t, boolCol.Value(0))
-	assert.Equal(t, int16(123), int2Col.Value(0))
-	assert.Equal(t, int32(456789), int4Col.Value(0))
-	assert.Equal(t, int64(123456789012), int8Col.Value(0))
-	assert.InDelta(t, 3.14, float4Col.Value(0), 0.001)
-	assert.InDelta(t, 2.718281828, float8Col.Value(0), 0.000000001)
-	assert.Equal(t, "Hello World", textCol.Value(0))
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += record.NumRows()
 
-	// Verify second row (edge case values)
-	assert.False(t, boolCol.Value(1))
-	assert.Equal(t, int16(-32768), int2Col.Value(1))
-	assert.Equal(t, int32(-2147483648), int4Col.Value(1))
-	assert.Equal(t, int64(-9223372036854775808), int8Col.Value(1))
-	assert.InDelta(t, 0.0, float4Col.Value(1), 0.01)
-	assert.InDelta(t, 0.0, float8Col.Value(1), 0.01)
-	assert.Empty(t, textCol.Value(1))
+		assert.Equal(t, int64(7), record.NumCols())
 
-	// Verify fourth row (all NULLs)
-	assert.True(t, boolCol.IsNull(3))
-	assert.True(t, int2Col.IsNull(3))
-	assert.True(t, int4Col.IsNull(3))
-	assert.True(t, int8Col.IsNull(3))
-	assert.True(t, float4Col.IsNull(3))
-	assert.True(t, float8Col.IsNull(3))
-	assert.True(t, textCol.IsNull(3))
+		// Extract typed columns (only once)
+		if boolCol == nil {
+			var ok bool
+			boolCol, ok = record.Column(0).(*array.Boolean)
+			require.True(t, ok, "Failed to cast column 0 to Boolean")
+			int2Col, ok = record.Column(1).(*array.Int16)
+			require.True(t, ok, "Failed to cast column 1 to Int16")
+			int4Col, ok = record.Column(2).(*array.Int32)
+			require.True(t, ok, "Failed to cast column 2 to Int32")
+			int8Col, ok = record.Column(3).(*array.Int64)
+			require.True(t, ok, "Failed to cast column 3 to Int64")
+			float4Col, ok = record.Column(4).(*array.Float32)
+			require.True(t, ok, "Failed to cast column 4 to Float32")
+			float8Col, ok = record.Column(5).(*array.Float64)
+			require.True(t, ok, "Failed to cast column 5 to Float64")
+			textCol, ok = record.Column(6).(*array.String)
+			require.True(t, ok, "Failed to cast column 6 to String")
+		}
+
+		// Verify data within each batch
+		for i := range int(record.NumRows()) {
+			switch i {
+			case 0: // First row (normal values)
+				assert.True(t, boolCol.Value(i))
+				assert.Equal(t, int16(123), int2Col.Value(i))
+				assert.Equal(t, int32(456789), int4Col.Value(i))
+				assert.Equal(t, int64(123456789012), int8Col.Value(i))
+				assert.InDelta(t, 3.14, float4Col.Value(i), 0.001)
+				assert.InDelta(t, 2.718281828, float8Col.Value(i), 0.000000001)
+				assert.Equal(t, "Hello World", textCol.Value(i))
+			case 1: // Second row (edge case values)
+				assert.False(t, boolCol.Value(i))
+				assert.Equal(t, int16(-32768), int2Col.Value(i))
+				assert.Equal(t, int32(-2147483648), int4Col.Value(i))
+				assert.Equal(t, int64(-9223372036854775808), int8Col.Value(i))
+				assert.InDelta(t, 0.0, float4Col.Value(i), 0.01)
+				assert.InDelta(t, 0.0, float8Col.Value(i), 0.01)
+				assert.Empty(t, textCol.Value(i))
+			case 3: // Fourth row (all NULLs)
+				assert.True(t, boolCol.IsNull(i))
+				assert.True(t, int2Col.IsNull(i))
+				assert.True(t, int4Col.IsNull(i))
+				assert.True(t, int8Col.IsNull(i))
+				assert.True(t, float4Col.IsNull(i))
+				assert.True(t, float8Col.IsNull(i))
+				assert.True(t, textCol.IsNull(i))
+			}
+		}
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
+
+	assert.Equal(t, int64(4), totalRows)
 }
 
 // TestIsolatedTestEnvHelper is a test to verify our isolated test environment helper works
@@ -824,13 +1007,22 @@ func TestIsolatedTestEnvHelper(t *testing.T) {
 	defer cleanup()
 
 	// Test that we can query our custom table
-	record, err := testPool.QueryArrow(ctx, "SELECT * FROM test_simple")
+	reader, err := testPool.QueryArrow(ctx, "SELECT * FROM test_simple")
 	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
+	require.NotNil(t, reader)
+	defer reader.Release()
 
-	assert.Equal(t, int64(1), record.NumRows())
-	assert.Equal(t, int64(2), record.NumCols())
+	totalRows := int64(0)
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += record.NumRows()
+		assert.Equal(t, int64(2), record.NumCols())
+	}
+
+	// Check for reader errors
+	require.NoError(t, reader.Err())
+
+	assert.Equal(t, int64(1), totalRows)
 }
 
 // TestQueryArrowDataTypes is a comprehensive table-based test covering all PostgreSQL data types
@@ -1152,26 +1344,37 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			defer testCleanup()
 
 			// Execute query
-			var record arrow.Record
+			var reader array.RecordReader
 			var err error
 			if len(tt.args) > 0 {
-				record, err = testPool.QueryArrow(ctx, tt.querySQL, tt.args...)
+				reader, err = testPool.QueryArrow(ctx, tt.querySQL, tt.args...)
 			} else {
-				record, err = testPool.QueryArrow(ctx, tt.querySQL)
+				reader, err = testPool.QueryArrow(ctx, tt.querySQL)
 			}
 
 			require.NoError(t, err, "Query failed for test %s", tt.name)
-			require.NotNil(t, record, "Record should not be nil for test %s", tt.name)
-			defer record.Release()
+			require.NotNil(t, reader, "Reader should not be nil for test %s", tt.name)
+			defer reader.Release()
 
-			// Validate basic expectations
-			assert.Equal(t, tt.expectedRows, record.NumRows(), "Row count mismatch for test %s", tt.name)
-			assert.Equal(t, tt.expectedCols, record.NumCols(), "Column count mismatch for test %s", tt.name)
+			totalRows := int64(0)
+			for reader.Next() {
+				record := reader.Record()
+				totalRows += record.NumRows()
 
-			// Run custom validation
-			if tt.validateFunc != nil {
-				tt.validateFunc(t, record)
+				// Validate basic expectations for each batch
+				assert.Equal(t, tt.expectedCols, record.NumCols(), "Column count mismatch for test %s", tt.name)
+
+				// Run custom validation on each record batch
+				if tt.validateFunc != nil {
+					tt.validateFunc(t, record)
+				}
 			}
+
+			// Check for reader errors
+			require.NoError(t, reader.Err())
+
+			// Validate total row count
+			assert.Equal(t, tt.expectedRows, totalRows, "Row count mismatch for test %s", tt.name)
 		})
 	}
 }

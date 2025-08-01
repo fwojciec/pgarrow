@@ -63,16 +63,23 @@ func demonstrateAllTypes(pool *pgarrow.Pool) {
 			'Hello PGArrow!'::text as text_col  -- text (OID 25)
 	`
 
-	record, err := pool.QueryArrow(context.Background(), query)
+	reader, err := pool.QueryArrow(context.Background(), query)
 	if err != nil {
 		log.Fatalf("Query failed: %v", err)
 	}
-	defer record.Release()
+	defer reader.Release()
 
-	fmt.Printf("Query returned %d rows, %d columns\n", record.NumRows(), record.NumCols())
-	fmt.Printf("Schema: %s\n\n", record.Schema())
+	fmt.Printf("Schema: %s\n\n", reader.Schema())
 
-	displayTypedResults(record)
+	for reader.Next() {
+		record := reader.Record()
+		fmt.Printf("Batch returned %d rows, %d columns\n", record.NumRows(), record.NumCols())
+		displayTypedResults(record)
+	}
+
+	if err := reader.Err(); err != nil {
+		log.Fatalf("Reader error: %v", err)
+	}
 }
 
 func displayTypedResults(record arrow.Record) {
@@ -148,22 +155,32 @@ func demonstrateNullHandling(pool *pgarrow.Pool) {
 			NULL::text as null_text
 	`
 
-	nullRecord, err := pool.QueryArrow(context.Background(), nullQuery)
+	reader, err := pool.QueryArrow(context.Background(), nullQuery)
 	if err != nil {
 		log.Fatalf("NULL query failed: %v", err)
 	}
-	defer nullRecord.Release()
+	defer reader.Release()
 
-	fmt.Printf("NULL query returned %d rows\n", nullRecord.NumRows())
+	totalRows := 0
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += int(record.NumRows())
 
-	// Check nulls in each column
-	for i := 0; i < int(nullRecord.NumCols()); i++ {
-		col := nullRecord.Column(i)
-		colName := nullRecord.Schema().Field(i).Name
-		nullCount := col.NullN()
-		fmt.Printf("Column '%s': %d null values out of %d total\n",
-			colName, nullCount, col.Len())
+		// Check nulls in each column
+		for i := 0; i < int(record.NumCols()); i++ {
+			col := record.Column(i)
+			colName := record.Schema().Field(i).Name
+			nullCount := col.NullN()
+			fmt.Printf("Column '%s': %d null values out of %d total\n",
+				colName, nullCount, col.Len())
+		}
 	}
+
+	if err := reader.Err(); err != nil {
+		log.Fatalf("Reader error: %v", err)
+	}
+
+	fmt.Printf("NULL query returned %d rows\n", totalRows)
 }
 
 func demonstrateMixedData(pool *pgarrow.Pool) {
@@ -177,15 +194,24 @@ func demonstrateMixedData(pool *pgarrow.Pool) {
 		) AS mixed_data(id, name, score, active)
 	`
 
-	mixedRecord, err := pool.QueryArrow(context.Background(), mixedQuery)
+	reader, err := pool.QueryArrow(context.Background(), mixedQuery)
 	if err != nil {
 		log.Fatalf("Mixed query failed: %v", err)
 	}
-	defer mixedRecord.Release()
+	defer reader.Release()
 
-	fmt.Printf("Mixed data query returned %d rows\n", mixedRecord.NumRows())
+	totalRows := 0
+	for reader.Next() {
+		record := reader.Record()
+		totalRows += int(record.NumRows())
+		printMixedResults(record)
+	}
 
-	printMixedResults(mixedRecord)
+	if err := reader.Err(); err != nil {
+		log.Fatalf("Reader error: %v", err)
+	}
+
+	fmt.Printf("Mixed data query returned %d rows\n", totalRows)
 }
 
 func printMixedResults(record arrow.Record) {

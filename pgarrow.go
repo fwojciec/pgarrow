@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -36,7 +37,7 @@ func NewPool(ctx context.Context, connString string) (*Pool, error) {
 	return &Pool{pool: pool}, nil
 }
 
-// QueryArrow executes a PostgreSQL query and returns results as an Apache Arrow record.
+// QueryArrow executes a PostgreSQL query and returns results as an Apache Arrow RecordReader.
 // This is the primary method for converting PostgreSQL data to Arrow format using
 // the binary COPY protocol for optimal performance.
 //
@@ -53,21 +54,28 @@ func NewPool(ctx context.Context, connString string) (*Pool, error) {
 //   - float8/double precision (PostgreSQL OID 701)
 //   - text (PostgreSQL OID 25)
 //
-// The returned Arrow record must be released by calling record.Release()
-// to prevent memory leaks.
+// The returned RecordReader streams data in batches and must be released by calling
+// reader.Release() to prevent memory leaks.
 //
 // Example usage:
 //
-//	record, err := pool.QueryArrow(ctx, "SELECT id, name FROM users WHERE id = 123")
+//	reader, err := pool.QueryArrow(ctx, "SELECT id, name FROM users")
 //	if err != nil {
 //	    return err
 //	}
-//	defer record.Release()
+//	defer reader.Release()
 //
-//	// Access data using Arrow arrays
-//	idCol := record.Column(0).(*array.Int32)
-//	nameCol := record.Column(1).(*array.String)
-func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (arrow.Record, error) {
+//	for reader.Next() {
+//	    record := reader.Record()
+//	    // Access data using Arrow arrays
+//	    idCol := record.Column(0).(*array.Int32)
+//	    nameCol := record.Column(1).(*array.String)
+//	    // Process record...
+//	}
+//	if err := reader.Err(); err != nil {
+//	    return err
+//	}
+func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.RecordReader, error) {
 	// Check for parameterized queries - COPY TO BINARY doesn't support parameters
 	if len(args) > 0 {
 		return nil, fmt.Errorf("parameterized queries are not supported with COPY TO BINARY protocol - use literal values in SQL instead")
@@ -77,21 +85,22 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (arrow.R
 	if err != nil {
 		return nil, fmt.Errorf("failed to acquire connection: %w", err)
 	}
-	defer conn.Release()
 
 	// Get metadata and create schema
 	schema, fieldOIDs, err := p.getQueryMetadata(ctx, conn, sql, args...)
 	if err != nil {
+		conn.Release()
 		return nil, err
 	}
 
-	// Execute COPY and parse binary data
-	record, err := p.executeCopyAndParse(ctx, conn, sql, schema, fieldOIDs)
+	// Execute COPY and parse binary data - connection lifecycle is now managed by the reader
+	reader, err := p.executeCopyAndParse(ctx, conn, sql, schema, fieldOIDs)
 	if err != nil {
+		conn.Release()
 		return nil, err
 	}
 
-	return record, nil
+	return reader, nil
 }
 
 // getQueryMetadata executes query to extract column metadata and create Arrow schema
@@ -123,83 +132,31 @@ func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql str
 	return schema, fieldOIDs, nil
 }
 
-// executeCopyAndParse runs COPY TO BINARY and parses the result into Arrow record
-func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql string, schema *arrow.Schema, fieldOIDs []uint32) (arrow.Record, error) {
+// executeCopyAndParse runs COPY TO BINARY and parses the result into Arrow RecordReader
+func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql string, schema *arrow.Schema, fieldOIDs []uint32) (array.RecordReader, error) {
 	copySQL := fmt.Sprintf("COPY (%s) TO STDOUT (FORMAT BINARY)", sql)
 
 	// Set up pipe for COPY data
-	// io.Pipe is used to stream data from the COPY TO STDOUT operation (executed in a goroutine)
-	// to the parseDataToRecord function. This allows concurrent writing and reading of the data.
 	pipeReader, pipeWriter := io.Pipe()
-	copyErrChan := make(chan error, 1)
+	copyDone := make(chan struct{})
 
 	go func() {
 		defer pipeWriter.Close()
+		defer close(copyDone) // Signal completion
 		_, err := conn.Conn().PgConn().CopyTo(ctx, pipeWriter, copySQL)
-		copyErrChan <- err
+		if err != nil {
+			// Close pipe writer with error to propagate error to reader
+			pipeWriter.CloseWithError(err)
+		}
 	}()
-	defer pipeReader.Close()
 
-	// Parse and build record
-	record, err := p.parseDataToRecord(pipeReader, schema, fieldOIDs)
+	// Create RecordReader with connection lifecycle management
+	reader, err := newRecordReader(schema, fieldOIDs, memory.DefaultAllocator, conn, pipeReader, copyDone)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check COPY operation result with context handling
-	select {
-	case copyErr := <-copyErrChan:
-		if copyErr != nil {
-			record.Release()
-			return nil, fmt.Errorf("COPY operation failed: %w", copyErr)
-		}
-	case <-ctx.Done():
-		record.Release()
-		return nil, fmt.Errorf("context cancelled during COPY operation: %w", ctx.Err())
-	}
-
-	return record, nil
-}
-
-// parseDataToRecord parses binary COPY data and builds Arrow record
-func (p *Pool) parseDataToRecord(reader io.Reader, schema *arrow.Schema, fieldOIDs []uint32) (arrow.Record, error) {
-	parser := NewParser(reader, fieldOIDs)
-	if err := parser.ParseHeader(); err != nil {
-		return nil, fmt.Errorf("failed to parse COPY header: %w", err)
-	}
-
-	recordBuilder, err := NewRecordBuilder(schema, memory.DefaultAllocator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create record builder: %w", err)
-	}
-	defer recordBuilder.Release()
-
-	// Parse all tuples
-	for {
-		fields, err := parser.ParseTuple()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse tuple: %w", err)
-		}
-
-		values := make([]any, len(fields))
-		for i, field := range fields {
-			values[i] = field.Value
-		}
-
-		if err := recordBuilder.AppendRow(values); err != nil {
-			return nil, fmt.Errorf("failed to append row to builder: %w", err)
-		}
-	}
-
-	record, err := recordBuilder.NewRecord()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Arrow record: %w", err)
-	}
-
-	return record, nil
+	return reader, nil
 }
 
 // Close closes the pool and all its connections.

@@ -1,12 +1,14 @@
 # PGArrow
 
-PGArrow is a pure Go library that provides ADBC-like functionality for converting PostgreSQL query results directly to Apache Arrow format, without CGO dependencies.
+PGArrow is a pure Go library that provides ADBC-like functionality for converting PostgreSQL query results directly to Apache Arrow format, without CGO dependencies. It uses a streaming RecordReader architecture for optimal memory efficiency and performance.
 
 **Key Benefits:**
 - ✅ **Instant connections** (no metadata preloading)  
 - ✅ **Zero CGO dependencies** (pure Go)
-- ✅ **High performance** (direct binary format conversion)
+- ✅ **Streaming architecture** (constant memory usage, scalable to any result set size)
+- ✅ **High performance** (direct binary format conversion, DuckDB-optimized batching)
 - ✅ **pgx compatibility** (uses pgxpool for connection management)
+- ✅ **Arrow ecosystem ready** (implements standard array.RecordReader interface)
 
 ## Quick Start
 
@@ -39,22 +41,32 @@ func main() {
     }
     defer pool.Close()
 
-    // Execute query and get Arrow record
-    record, err := pool.QueryArrow(context.Background(), 
-        "SELECT id, name, active FROM users WHERE id = $1", 123)
+    // Execute query and get Arrow RecordReader (streaming)
+    reader, err := pool.QueryArrow(context.Background(), 
+        "SELECT id, name, active FROM users")
     if err != nil {
         log.Fatal(err)
     }
-    defer record.Release()
+    defer reader.Release()
 
-    // Access data using Arrow arrays
-    idCol := record.Column(0).(*array.Int32)
-    nameCol := record.Column(1).(*array.String)
-    activeCol := record.Column(2).(*array.Boolean)
+    // Stream through batches of data
+    for reader.Next() {
+        record := reader.Record()
+        
+        // Access data using Arrow arrays
+        idCol := record.Column(0).(*array.Int32)
+        nameCol := record.Column(1).(*array.String)
+        activeCol := record.Column(2).(*array.Boolean)
 
-    for i := 0; i < int(record.NumRows()); i++ {
-        fmt.Printf("ID: %d, Name: %s, Active: %t\n",
-            idCol.Value(i), nameCol.Value(i), activeCol.Value(i))
+        for i := 0; i < int(record.NumRows()); i++ {
+            fmt.Printf("ID: %d, Name: %s, Active: %t\n",
+                idCol.Value(i), nameCol.Value(i), activeCol.Value(i))
+        }
+    }
+    
+    // Check for errors
+    if err := reader.Err(); err != nil {
+        log.Fatal(err)
     }
 }
 ```
@@ -78,19 +90,27 @@ PGArrow supports 7 core PostgreSQL data types with direct Arrow format conversio
 PGArrow properly handles PostgreSQL NULL values using Arrow's null bitmap:
 
 ```go
-record, err := pool.QueryArrow(ctx, "SELECT id, name FROM users")
+reader, err := pool.QueryArrow(ctx, "SELECT id, name FROM users")
 if err != nil {
     log.Fatal(err)
 }
-defer record.Release()
+defer reader.Release()
 
-nameCol := record.Column(1).(*array.String)
-for i := 0; i < int(record.NumRows()); i++ {
-    if nameCol.IsNull(i) {
-        fmt.Printf("Row %d: name is NULL\n", i)
-    } else {
-        fmt.Printf("Row %d: name is %s\n", i, nameCol.Value(i))
+for reader.Next() {
+    record := reader.Record()
+    nameCol := record.Column(1).(*array.String)
+    
+    for i := 0; i < int(record.NumRows()); i++ {
+        if nameCol.IsNull(i) {
+            fmt.Printf("Row %d: name is NULL\n", i)
+        } else {
+            fmt.Printf("Row %d: name is %s\n", i, nameCol.Value(i))
+        }
     }
+}
+
+if err := reader.Err(); err != nil {
+    log.Fatal(err)
 }
 ```
 
@@ -122,18 +142,26 @@ go test -bench=. -benchmem ./...
 
 ## Architecture
 
-PGArrow uses PostgreSQL's `COPY TO BINARY` format for optimal data transfer:
+PGArrow uses PostgreSQL's `COPY TO BINARY` format with streaming RecordReader architecture for optimal data transfer and constant memory usage:
 
 ```
-PostgreSQL → COPY TO BINARY → Binary Parser → Type Handlers → Arrow Record
+PostgreSQL → COPY TO BINARY → Binary Parser → Type Handlers → Arrow RecordReader → Arrow Record Batches
 ```
 
 ### Core Components
 
-1. **Pool**: Connection management using pgxpool
-2. **Binary Parser**: PostgreSQL binary format decoder  
-3. **Type System**: OID-based type handlers with Arrow conversion
-4. **Record Builder**: Arrow record construction with proper memory management
+1. **Pool**: Connection management using pgxpool with instant connections
+2. **RecordReader**: Streaming interface implementing `array.RecordReader` with proper reference counting
+3. **Binary Parser**: PostgreSQL binary format decoder with support for all 7 data types  
+4. **Type System**: OID-based type handlers with direct Arrow conversion
+5. **Record Builder**: Arrow record construction with proper memory management and DuckDB-optimized batching (128,800 rows)
+
+### Streaming Benefits
+
+- **Constant Memory Usage**: Processes data in configurable batches regardless of result set size
+- **Connection Lifecycle**: Proper connection management tied to RecordReader lifecycle
+- **Reference Counting**: Atomic reference counting following Apache Arrow patterns
+- **Zero-Copy Access**: Direct access to Arrow data without intermediate copies
 
 ## Status
 
@@ -141,12 +169,14 @@ PGArrow is currently in active development. The core functionality is implemente
 
 - ✅ All 7 supported data types
 - ✅ NULL value handling  
-- ✅ Connection pooling
+- ✅ Connection pooling with instant connections
 - ✅ Binary format parsing
-- ✅ Arrow record building
+- ✅ Streaming RecordReader architecture
+- ✅ Arrow record building with batching
 - ✅ Memory safety and leak prevention
-- ✅ Comprehensive test suite
+- ✅ Comprehensive test suite with parallel execution
 - ✅ Performance benchmarks
+- ✅ DuckDB-optimized batch sizes
 
 ## Known Limitations
 

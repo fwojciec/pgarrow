@@ -83,16 +83,23 @@ func BenchmarkQueryArrowVsPgxText(b *testing.B) {
 
 				b.ResetTimer()
 				for b.Loop() {
-					record, err := pool.QueryArrow(ctx, bm.sql)
+					reader, err := pool.QueryArrow(ctx, bm.sql)
 					if err != nil {
 						b.Fatalf("PGArrow query failed: %v", err)
 					}
 
 					// Simulate accessing data to ensure fair comparison
-					_ = record.NumRows()
-					_ = record.NumCols()
+					totalRows := int64(0)
+					totalCols := int64(0)
+					for reader.Next() {
+						record := reader.Record()
+						totalRows += record.NumRows()
+						totalCols = record.NumCols()
+					}
+					_ = totalRows
+					_ = totalCols
 
-					record.Release()
+					reader.Release()
 				}
 			})
 
@@ -136,11 +143,15 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	b.Run("PGArrow", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			record, err := pool.QueryArrow(ctx, sql)
+			reader, err := pool.QueryArrow(ctx, sql)
 			if err != nil {
 				b.Fatalf("PGArrow query failed: %v", err)
 			}
-			record.Release()
+			for reader.Next() {
+				// Process the record
+				_ = reader.Record()
+			}
+			reader.Release()
 		}
 	})
 
@@ -245,14 +256,17 @@ func BenchmarkDataTypeConversion(b *testing.B) {
 			b.Run("PGArrow", func(b *testing.B) {
 				b.ResetTimer()
 				for b.Loop() {
-					record, err := pool.QueryArrow(ctx, tt.sql)
+					reader, err := pool.QueryArrow(ctx, tt.sql)
 					if err != nil {
 						b.Fatalf("Query failed: %v", err)
 					}
 					// Access the data to ensure conversion happens
-					col := record.Column(0)
-					_ = col.Len()
-					record.Release()
+					for reader.Next() {
+						record := reader.Record()
+						col := record.Column(0)
+						_ = col.Len()
+					}
+					reader.Release()
 				}
 			})
 

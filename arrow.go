@@ -2,10 +2,13 @@ package pgarrow
 
 import (
 	"fmt"
+	"io"
+	"sync/atomic"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ColumnInfo represents PostgreSQL column metadata for Arrow schema generation
@@ -240,4 +243,158 @@ func (rb *RecordBuilder) Release() {
 		}
 	}
 	rb.builders = nil
+}
+
+// PGArrowRecordReader implements array.RecordReader for streaming PostgreSQL data
+type PGArrowRecordReader struct {
+	refCount  int64
+	schema    *arrow.Schema
+	parser    *Parser
+	fieldOIDs []uint32
+	alloc     memory.Allocator
+
+	// Connection lifecycle management
+	conn       *pgxpool.Conn
+	pipeReader *io.PipeReader
+	copyDone   chan struct{} // Signal when COPY goroutine is done
+
+	currentRecord arrow.Record
+	err           error
+	released      bool
+	batchSize     int
+}
+
+// newRecordReader creates a new PGArrowRecordReader with connection lifecycle management
+func newRecordReader(schema *arrow.Schema, fieldOIDs []uint32, alloc memory.Allocator, conn *pgxpool.Conn, pipeReader *io.PipeReader, copyDone chan struct{}) (*PGArrowRecordReader, error) {
+	parser := NewParser(pipeReader, fieldOIDs)
+	if err := parser.ParseHeader(); err != nil {
+		return nil, fmt.Errorf("failed to parse COPY header: %w", err)
+	}
+
+	return &PGArrowRecordReader{
+		refCount:   1,
+		schema:     schema,
+		parser:     parser,
+		fieldOIDs:  fieldOIDs,
+		alloc:      alloc,
+		conn:       conn,
+		pipeReader: pipeReader,
+		copyDone:   copyDone,
+		batchSize:  128800, // Default batch size optimized for DuckDB parallel processing
+	}, nil
+}
+
+// Schema returns the Arrow schema
+func (r *PGArrowRecordReader) Schema() *arrow.Schema {
+	return r.schema
+}
+
+// Next advances to the next record batch
+func (r *PGArrowRecordReader) Next() bool {
+	if r.released || r.err != nil {
+		return false
+	}
+
+	// Release previous record if exists
+	if r.currentRecord != nil {
+		r.currentRecord.Release()
+		r.currentRecord = nil
+	}
+
+	// Build next batch
+	recordBuilder, err := NewRecordBuilder(r.schema, r.alloc)
+	if err != nil {
+		r.err = fmt.Errorf("failed to create record builder: %w", err)
+		return false
+	}
+	defer recordBuilder.Release()
+
+	rowCount := r.parseRowsIntoBatch(recordBuilder)
+	if rowCount == 0 || r.err != nil {
+		return false
+	}
+
+	// Create record from batch
+	record, err := recordBuilder.NewRecord()
+	if err != nil {
+		r.err = fmt.Errorf("failed to create Arrow record: %w", err)
+		return false
+	}
+
+	r.currentRecord = record
+	return true
+}
+
+// parseRowsIntoBatch parses rows from the parser into the record builder
+func (r *PGArrowRecordReader) parseRowsIntoBatch(recordBuilder *RecordBuilder) int {
+	rowCount := 0
+	for rowCount < r.batchSize {
+		fields, err := r.parser.ParseTuple()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			r.err = fmt.Errorf("failed to parse tuple: %w", err)
+			return rowCount
+		}
+
+		values := make([]any, len(fields))
+		for i, field := range fields {
+			values[i] = field.Value
+		}
+
+		if err := recordBuilder.AppendRow(values); err != nil {
+			r.err = fmt.Errorf("failed to append row to builder: %w", err)
+			return rowCount
+		}
+
+		rowCount++
+	}
+	return rowCount
+}
+
+// Record returns the current record batch
+func (r *PGArrowRecordReader) Record() arrow.Record {
+	return r.currentRecord
+}
+
+// Err returns any error that occurred during reading
+func (r *PGArrowRecordReader) Err() error {
+	return r.err
+}
+
+// Release decreases the reference count and releases resources when it reaches 0
+func (r *PGArrowRecordReader) Release() {
+	if atomic.AddInt64(&r.refCount, -1) == 0 {
+		if r.currentRecord != nil {
+			r.currentRecord.Release()
+			r.currentRecord = nil
+		}
+
+		// Clean up connection resources
+		if r.pipeReader != nil {
+			r.pipeReader.Close()
+			r.pipeReader = nil
+		}
+
+		// Wait for COPY goroutine to complete before releasing connection
+		if r.copyDone != nil {
+			<-r.copyDone
+			r.copyDone = nil
+		}
+
+		if r.conn != nil {
+			r.conn.Release()
+			r.conn = nil
+		}
+
+		r.schema = nil
+		r.parser = nil
+		r.released = true
+	}
+}
+
+// Retain increases the reference count
+func (r *PGArrowRecordReader) Retain() {
+	atomic.AddInt64(&r.refCount, 1)
 }
