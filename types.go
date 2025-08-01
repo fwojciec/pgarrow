@@ -246,5 +246,8 @@ func (t *TextType) ArrowType() arrow.DataType {
 }
 
 func (t *TextType) Parse(data []byte) (interface{}, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
 	return string(data), nil
 }
