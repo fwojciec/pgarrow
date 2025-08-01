@@ -207,8 +207,15 @@ func TestParser_ParseField(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "text empty data (NULL)",
-			fieldData:   []byte{0x00, 0x00, 0x00, 0x00}, // length=0, empty data
+			name:        "text empty string",
+			fieldData:   []byte{0x00, 0x00, 0x00, 0x00}, // length=0, empty data = empty string
+			oid:         pgarrow.TypeOIDText,
+			expectedVal: "",
+			expectError: false,
+		},
+		{
+			name:        "text NULL value",
+			fieldData:   []byte{0xFF, 0xFF, 0xFF, 0xFF}, // length=-1 = NULL
 			oid:         pgarrow.TypeOIDText,
 			expectedVal: nil,
 			expectError: false,
@@ -289,7 +296,6 @@ func TestParser_ErrorHandling(t *testing.T) {
 		assert.Nil(t, fields)
 	})
 }
-
 
 // Benchmark tests for performance validation
 func BenchmarkParser_ParseHeader(b *testing.B) {
