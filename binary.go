@@ -209,9 +209,8 @@ func (p *Parser) parseFieldData(data []byte, oid uint32) (interface{}, error) {
 		return math.Float64frombits(binary.BigEndian.Uint64(data)), nil
 
 	case TypeOIDText:
-		if len(data) == 0 {
-			return nil, nil // NULL value
-		}
+		// Empty data represents an empty string, not NULL
+		// NULL values are handled at the field level (length == -1)
 		return string(data), nil
 
 	default:
