@@ -42,6 +42,10 @@ Thumbs.db
 /dist/
 /build/
 
+# Example binaries (created when running go run from root)
+/simple
+/types
+
 # Temporary files
 *.tmp
 *.temp
