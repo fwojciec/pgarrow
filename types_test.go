@@ -384,7 +384,7 @@ func TestTypeHandler_TextType(t *testing.T) {
 		data := []byte{}
 		result, err := handler.Parse(data)
 		require.NoError(t, err)
-		assert.Empty(t, result)
+		assert.Nil(t, result)
 	})
 }
 
