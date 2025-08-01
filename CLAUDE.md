@@ -71,13 +71,14 @@ PostgreSQL → COPY TO BINARY → Binary Parser → Type Handlers → Arrow Reco
 
 ## Testing Strategy
 
-The project uses Test-Driven Development (TDD) with:
+The project uses Test-Driven Development (TDD) with comprehensive integration testing:
 
-- **Unit Tests**: Binary parser, type handlers, Arrow builders
-- **Integration Tests**: End-to-end queries using `pgxmock`
-- **Performance Tests**: Benchmarking against ADBC
+- **Integration Tests**: Real PostgreSQL testing with schema isolation (primary approach)
+- **Unit Tests**: Minimal tests for edge cases and component isolation
 - **Test Framework**: `github.com/stretchr/testify` for assertions
-- **Mocking**: `github.com/pashagolub/pgxmock/v4` for database interactions
+- **Database Testing**: Uses `TEST_DATABASE_URL` pattern with automatic test skipping
+
+**Detailed testing setup and guidelines**: See `docs/testing.md`
 
 ### Testing Guidelines
 
@@ -86,9 +87,7 @@ The project uses Test-Driven Development (TDD) with:
 - **Memory Safety**: Arrow tests must use `memory.NewCheckedAllocator()` with `t.Cleanup(func() { alloc.AssertSize(t, 0) })`
 - **Resource Management**: Proper `defer record.Release()` and `defer builder.Release()` patterns
 - **Error Assertions**: Use `require.Error()` for error checks, `assert.Error()` for non-critical validations
-
-### Test Data Generation
-Helper functions generate valid PostgreSQL binary COPY format for testing without requiring a live database connection.
+- **Integration Testing**: Uses schema isolation with unique schema names per test for safe parallel execution
 
 ## Key Dependencies
 
