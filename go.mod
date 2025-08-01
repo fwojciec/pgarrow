@@ -2,7 +2,7 @@ module github.com/fwojciec/pgarrow
 
 go 1.24.5
 
-require github.com/stretchr/testify v1.10.0 // indirect
+require github.com/stretchr/testify v1.10.0
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.0
