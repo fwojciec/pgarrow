@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	
+	"github.com/fwojciec/pgarrow"
 )
 
 // buildMockBinaryData generates valid PostgreSQL COPY binary format data for testing
@@ -168,4 +170,32 @@ func generateMultiTypeRow() []byte {
 // generateEmptyDataset creates minimal valid binary data with no rows
 func generateEmptyDataset() []byte {
 	return buildMockBinaryData([][]interface{}{})
+}
+
+// Helper functions that provide OID information for tests
+
+// getSimpleRowOIDs returns the OIDs for generateSimpleRow data
+func getSimpleRowOIDs() []uint32 {
+	return []uint32{
+		pgarrow.TypeOIDInt4,   // int32(42)
+		pgarrow.TypeOIDText,   // "Hello"
+		pgarrow.TypeOIDBool,   // true
+		pgarrow.TypeOIDInt4,   // nil (NULL int4)
+		pgarrow.TypeOIDInt8,   // int64(1000000)
+		pgarrow.TypeOIDFloat8, // float64(3.14159)
+	}
+}
+
+// getMultiTypeRowOIDs returns the OIDs for generateMultiTypeRow data
+func getMultiTypeRowOIDs() []uint32 {
+	return []uint32{
+		pgarrow.TypeOIDBool,   // true
+		pgarrow.TypeOIDInt2,   // int16(1000)
+		pgarrow.TypeOIDInt4,   // int32(1000000)
+		pgarrow.TypeOIDInt8,   // int64(1000000000000)
+		pgarrow.TypeOIDFloat4, // float32(3.14159)
+		pgarrow.TypeOIDFloat8, // float64(3.141592653589793)
+		pgarrow.TypeOIDText,   // "Hello, World!"
+		pgarrow.TypeOIDText,   // nil (NULL text)
+	}
 }

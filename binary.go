@@ -7,11 +7,26 @@ import (
 	"math"
 )
 
+const (
+	// defaultBufferCapacity is the initial capacity for reusable field data buffers
+	defaultBufferCapacity = 256
+	
+	// PostgreSQL type OIDs for Phase 1 support
+	TypeOIDBool    = 16
+	TypeOIDInt8    = 20  
+	TypeOIDInt2    = 21
+	TypeOIDInt4    = 23
+	TypeOIDText    = 25
+	TypeOIDFloat4  = 700
+	TypeOIDFloat8  = 701
+)
+
 // Parser parses PostgreSQL COPY binary format data
 type Parser struct {
-	reader io.Reader
-	buf    []byte  // Reusable buffer for field data
-	fields []Field // Reusable slice for fields
+	reader    io.Reader
+	buf       []byte  // Reusable buffer for field data
+	fields    []Field // Reusable slice for fields
+	fieldOIDs []uint32 // Optional: PostgreSQL type OIDs for each field
 }
 
 // Field represents a parsed field from binary data
@@ -19,11 +34,13 @@ type Field struct {
 	Value interface{}
 }
 
-// NewParser creates a new binary format parser
-func NewParser(reader io.Reader) *Parser {
+// NewParser creates a new binary format parser with explicit field type information
+// fieldOIDs must contain the PostgreSQL type OID for each field in order
+func NewParser(reader io.Reader, fieldOIDs []uint32) *Parser {
 	return &Parser{
-		reader: reader,
-		buf:    make([]byte, 0, 256), // Pre-allocate buffer with reasonable capacity
+		reader:    reader,
+		buf:       make([]byte, 0, defaultBufferCapacity),
+		fieldOIDs: fieldOIDs,
 	}
 }
 
@@ -90,12 +107,17 @@ func (p *Parser) ParseTuple() ([]Field, error) {
 		p.fields = p.fields[:fieldCount]
 	}
 	
+	// Validate field count matches expected types
+	if len(p.fieldOIDs) != int(fieldCount) {
+		return nil, fmt.Errorf("field count mismatch: got %d fields, expected %d types", fieldCount, len(p.fieldOIDs))
+	}
+	
 	// Parse each field
 	for i := int16(0); i < fieldCount; i++ {
-		field, err := p.ParseField()
+		field, err := p.ParseField(int(i))
 		if err != nil {
 			return nil, fmt.Errorf("error parsing field %d: %w", i, err)
-		}
+		}  
 		p.fields[i] = field
 	}
 	
@@ -105,8 +127,8 @@ func (p *Parser) ParseTuple() ([]Field, error) {
 	return result, nil
 }
 
-// ParseField reads and parses a single field from the binary data
-func (p *Parser) ParseField() (Field, error) {
+// ParseField reads and parses a single field from the binary data using type information
+func (p *Parser) ParseField(fieldIndex int) (Field, error) {
 	// Read field length (4 bytes, network byte order)
 	var length int32
 	if err := binary.Read(p.reader, binary.BigEndian, &length); err != nil {
@@ -133,54 +155,63 @@ func (p *Parser) ParseField() (Field, error) {
 		return Field{}, fmt.Errorf("unexpected EOF reading field data: %w", err)
 	}
 	
-	// Parse field data based on length and content
-	value := p.parseFieldData(p.buf)
+	// Parse field data using explicit type information
+	if fieldIndex < 0 || fieldIndex >= len(p.fieldOIDs) {
+		return Field{}, fmt.Errorf("field index %d out of range for %d types", fieldIndex, len(p.fieldOIDs))
+	}
+	
+	fieldOID := p.fieldOIDs[fieldIndex]
+	value, err := p.parseFieldData(p.buf, fieldOID)
+	if err != nil {
+		return Field{}, fmt.Errorf("failed to parse field data for OID %d: %w", fieldOID, err)
+	}
 	
 	return Field{Value: value}, nil
 }
 
-// parseFieldData interprets the field data based on its length and format
-func (p *Parser) parseFieldData(data []byte) interface{} {
-	switch len(data) {
-	case 1:
-		// Boolean (1 byte)
-		return data[0] != 0
-		
-	case 2:
-		// int2 (2 bytes, network byte order)
-		return int16(binary.BigEndian.Uint16(data))
-		
-	case 4:
-		// Could be int4 or float4 - we need to distinguish
-		// For now, we'll try to detect if it's a valid float32
-		bits := binary.BigEndian.Uint32(data)
-		
-		// Check if it looks like a float32 (has reasonable exponent)
-		exponent := (bits >> 23) & 0xFF
-		if exponent > 0 && exponent < 255 {
-			// Likely a float32
-			return math.Float32frombits(bits)
+// parseFieldData interprets field data using explicit PostgreSQL type information
+func (p *Parser) parseFieldData(data []byte, oid uint32) (interface{}, error) {
+	switch oid {
+	case TypeOIDBool:
+		if len(data) != 1 {
+			return nil, fmt.Errorf("invalid data length for bool: expected 1, got %d", len(data))
 		}
+		return data[0] != 0, nil
 		
-		// Treat as int32
-		return int32(bits)
-		
-	case 8:
-		// Could be int8 or float8 - similar detection logic
-		bits := binary.BigEndian.Uint64(data)
-		
-		// Check if it looks like a float64 (has reasonable exponent)
-		exponent := (bits >> 52) & 0x7FF
-		if exponent > 0 && exponent < 0x7FF {
-			// Likely a float64
-			return math.Float64frombits(bits)
+	case TypeOIDInt2:
+		if len(data) != 2 {
+			return nil, fmt.Errorf("invalid data length for int2: expected 2, got %d", len(data))
 		}
+		return int16(binary.BigEndian.Uint16(data)), nil
 		
-		// Treat as int64
-		return int64(bits)
+	case TypeOIDInt4:
+		if len(data) != 4 {
+			return nil, fmt.Errorf("invalid data length for int4: expected 4, got %d", len(data))
+		}
+		return int32(binary.BigEndian.Uint32(data)), nil
+		
+	case TypeOIDInt8:
+		if len(data) != 8 {
+			return nil, fmt.Errorf("invalid data length for int8: expected 8, got %d", len(data))
+		}
+		return int64(binary.BigEndian.Uint64(data)), nil
+		
+	case TypeOIDFloat4:
+		if len(data) != 4 {
+			return nil, fmt.Errorf("invalid data length for float4: expected 4, got %d", len(data))
+		}
+		return math.Float32frombits(binary.BigEndian.Uint32(data)), nil
+		
+	case TypeOIDFloat8:
+		if len(data) != 8 {
+			return nil, fmt.Errorf("invalid data length for float8: expected 8, got %d", len(data))
+		}
+		return math.Float64frombits(binary.BigEndian.Uint64(data)), nil
+		
+	case TypeOIDText:
+		return string(data), nil
 		
 	default:
-		// Variable length - treat as text (UTF-8 string)
-		return string(data)
+		return nil, fmt.Errorf("unsupported PostgreSQL type OID: %d", oid)
 	}
 }
