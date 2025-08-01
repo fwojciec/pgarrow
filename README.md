@@ -1,9 +1,9 @@
 # PGArrow
 
-PGArrow is a pure Go library that provides ADBC-like functionality for converting PostgreSQL query results directly to Apache Arrow format, without CGO dependencies. It uses a streaming RecordReader architecture for optimal memory efficiency and performance.
+PGArrow is a pure Go library that converts PostgreSQL query results directly to Apache Arrow format, without CGO dependencies. It uses a streaming RecordReader architecture for optimal memory efficiency and performance.
 
 **Key Benefits:**
-- ✅ **Instant connections** (no metadata preloading)  
+- ✅ **Lazy metadata loading** (no upfront column type preloading)  
 - ✅ **Zero CGO dependencies** (pure Go)
 - ✅ **Streaming architecture** (constant memory usage, scalable to any result set size)
 - ✅ **High performance** (direct binary format conversion, DuckDB-optimized batching)
@@ -124,14 +124,11 @@ See the [`examples/`](examples/) directory for complete working examples:
 
 ## Performance
 
-PGArrow addresses the key scalability issue in ADBC where connection initialization takes 6-8 seconds for databases with 20k+ tables due to upfront metadata loading.
-
-**Connection Speed:**
-- **PGArrow**: <100ms (instant connections)
-- **ADBC**: 6-8 seconds (with 20k+ tables)
+PGArrow uses lazy metadata loading, avoiding upfront preloading of all database schema information. Column types are discovered only when needed during query execution.
 
 **Memory Efficiency:**
 - Direct binary format parsing (PostgreSQL COPY BINARY)
+- Streaming architecture with configurable batch sizes
 - Zero-copy data access where possible
 - Proper memory management with Arrow's reference counting
 
@@ -150,7 +147,7 @@ PostgreSQL → COPY TO BINARY → Binary Parser → Type Handlers → Arrow Reco
 
 ### Core Components
 
-1. **Pool**: Connection management using pgxpool with instant connections
+1. **Pool**: Connection management using pgxpool with lazy metadata loading
 2. **RecordReader**: Streaming interface implementing `array.RecordReader` with proper reference counting
 3. **Binary Parser**: PostgreSQL binary format decoder with support for all 7 data types  
 4. **Type System**: OID-based type handlers with direct Arrow conversion
@@ -169,7 +166,7 @@ PGArrow is currently in active development. The core functionality is implemente
 
 - ✅ All 7 supported data types
 - ✅ NULL value handling  
-- ✅ Connection pooling with instant connections
+- ✅ Connection pooling with lazy metadata loading
 - ✅ Binary format parsing
 - ✅ Streaming RecordReader architecture
 - ✅ Arrow record building with batching
@@ -182,5 +179,3 @@ PGArrow is currently in active development. The core functionality is implemente
 
 - **Parameterized Queries**: PGArrow does not support parameterized queries ($1, $2, etc.) due to PostgreSQL's COPY TO BINARY protocol limitations. Use literal values in your SQL queries instead.
 - **Limited Data Types**: Currently supports 7 PostgreSQL data types. Additional types can be added as needed.
-
-See [docs/implementation-plan.md](docs/implementation-plan.md) for detailed technical specifications.
