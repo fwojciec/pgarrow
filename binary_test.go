@@ -69,15 +69,15 @@ func TestParser_ParseTuple(t *testing.T) {
 		data := generateSimpleRow()
 		oids := getSimpleRowOIDs()
 		parser := pgarrow.NewParser(bytes.NewReader(data), oids)
-		
+
 		// Parse header first
 		require.NoError(t, parser.ParseHeader())
-		
+
 		// Parse the tuple
 		fields, err := parser.ParseTuple()
 		require.NoError(t, err)
 		require.Len(t, fields, 6)
-		
+
 		// Verify field values
 		assert.Equal(t, int32(42), fields[0].Value)
 		assert.Equal(t, "Hello", fields[1].Value)
@@ -92,13 +92,13 @@ func TestParser_ParseTuple(t *testing.T) {
 		data := generateMultiTypeRow()
 		oids := getMultiTypeRowOIDs()
 		parser := pgarrow.NewParser(bytes.NewReader(data), oids)
-		
+
 		require.NoError(t, parser.ParseHeader())
-		
+
 		fields, err := parser.ParseTuple()
 		require.NoError(t, err)
 		require.Len(t, fields, 8)
-		
+
 		// Verify all data types
 		assert.Equal(t, true, fields[0].Value)
 		assert.Equal(t, int16(1000), fields[1].Value)
@@ -115,9 +115,9 @@ func TestParser_ParseTuple(t *testing.T) {
 		data := generateEmptyDataset()
 		// Empty OIDs for empty dataset
 		parser := pgarrow.NewParser(bytes.NewReader(data), []uint32{})
-		
+
 		require.NoError(t, parser.ParseHeader())
-		
+
 		// Should return EOF immediately since no rows
 		fields, err := parser.ParseTuple()
 		assert.Equal(t, io.EOF, err)
@@ -134,20 +134,20 @@ func TestParser_ParseTuple(t *testing.T) {
 		data := buildMockBinaryData(rows)
 		oids := []uint32{pgarrow.TypeOIDInt4, pgarrow.TypeOIDText}
 		parser := pgarrow.NewParser(bytes.NewReader(data), oids)
-		
+
 		require.NoError(t, parser.ParseHeader())
-		
+
 		// Parse all three rows
 		for i := 0; i < 3; i++ {
 			fields, err := parser.ParseTuple()
 			require.NoError(t, err)
 			require.Len(t, fields, 2)
-			
+
 			assert.Equal(t, int32(i+1), fields[0].Value)
 			expectedText := []string{"first", "second", "third"}[i]
 			assert.Equal(t, expectedText, fields[1].Value)
 		}
-		
+
 		// Next call should return EOF
 		fields, err := parser.ParseTuple()
 		assert.Equal(t, io.EOF, err)
@@ -158,67 +158,74 @@ func TestParser_ParseTuple(t *testing.T) {
 func TestParser_ParseField(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name         string
-		fieldData    []byte
-		oid          uint32
-		expectedVal  interface{}
-		expectError  bool
+		name        string
+		fieldData   []byte
+		oid         uint32
+		expectedVal interface{}
+		expectError bool
 	}{
 		{
-			name:         "NULL field",
-			fieldData:    []byte{0xFF, 0xFF, 0xFF, 0xFF}, // -1 length
-			oid:          pgarrow.TypeOIDInt4,
-			expectedVal:  nil,
-			expectError:  false,
+			name:        "NULL field",
+			fieldData:   []byte{0xFF, 0xFF, 0xFF, 0xFF}, // -1 length
+			oid:         pgarrow.TypeOIDInt4,
+			expectedVal: nil,
+			expectError: false,
 		},
 		{
-			name:         "boolean true",
-			fieldData:    []byte{0x00, 0x00, 0x00, 0x01, 0x01}, // length=1, value=true
-			oid:          pgarrow.TypeOIDBool,
-			expectedVal:  true,
-			expectError:  false,
+			name:        "boolean true",
+			fieldData:   []byte{0x00, 0x00, 0x00, 0x01, 0x01}, // length=1, value=true
+			oid:         pgarrow.TypeOIDBool,
+			expectedVal: true,
+			expectError: false,
 		},
 		{
-			name:         "boolean false",
-			fieldData:    []byte{0x00, 0x00, 0x00, 0x01, 0x00}, // length=1, value=false
-			oid:          pgarrow.TypeOIDBool,
-			expectedVal:  false,
-			expectError:  false,
+			name:        "boolean false",
+			fieldData:   []byte{0x00, 0x00, 0x00, 0x01, 0x00}, // length=1, value=false
+			oid:         pgarrow.TypeOIDBool,
+			expectedVal: false,
+			expectError: false,
 		},
 		{
-			name:         "int32 value",
-			fieldData:    []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x2A}, // length=4, value=42
-			oid:          pgarrow.TypeOIDInt4,
-			expectedVal:  int32(42),
-			expectError:  false,
+			name:        "int32 value",
+			fieldData:   []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x2A}, // length=4, value=42
+			oid:         pgarrow.TypeOIDInt4,
+			expectedVal: int32(42),
+			expectError: false,
 		},
 		{
-			name:         "float32 value",
-			fieldData:    []byte{0x00, 0x00, 0x00, 0x04, 0x40, 0x49, 0x0F, 0xD0}, // length=4, value≈3.14159
-			oid:          pgarrow.TypeOIDFloat4,
-			expectedVal:  float32(3.14159),
-			expectError:  false,
+			name:        "float32 value",
+			fieldData:   []byte{0x00, 0x00, 0x00, 0x04, 0x40, 0x49, 0x0F, 0xD0}, // length=4, value≈3.14159
+			oid:         pgarrow.TypeOIDFloat4,
+			expectedVal: float32(3.14159),
+			expectError: false,
 		},
 		{
-			name:         "text value",
-			fieldData:    append([]byte{0x00, 0x00, 0x00, 0x05}, []byte("Hello")...), // length=5, value="Hello"
-			oid:          pgarrow.TypeOIDText,
-			expectedVal:  "Hello",
-			expectError:  false,
+			name:        "text value",
+			fieldData:   append([]byte{0x00, 0x00, 0x00, 0x05}, []byte("Hello")...), // length=5, value="Hello"
+			oid:         pgarrow.TypeOIDText,
+			expectedVal: "Hello",
+			expectError: false,
 		},
 		{
-			name:         "truncated field",
-			fieldData:    []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00}, // length=4 but only 2 data bytes
-			oid:          pgarrow.TypeOIDInt4,
-			expectedVal:  nil,
-			expectError:  true,
+			name:        "text empty data (NULL)",
+			fieldData:   []byte{0x00, 0x00, 0x00, 0x00}, // length=0, empty data
+			oid:         pgarrow.TypeOIDText,
+			expectedVal: nil,
+			expectError: false,
 		},
 		{
-			name:         "wrong length for type",
-			fieldData:    []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x2A}, // length=2 for int4 type
-			oid:          pgarrow.TypeOIDInt4,
-			expectedVal:  nil,
-			expectError:  true,
+			name:        "truncated field",
+			fieldData:   []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00}, // length=4 but only 2 data bytes
+			oid:         pgarrow.TypeOIDInt4,
+			expectedVal: nil,
+			expectError: true,
+		},
+		{
+			name:        "wrong length for type",
+			fieldData:   []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x2A}, // length=2 for int4 type
+			oid:         pgarrow.TypeOIDInt4,
+			expectedVal: nil,
+			expectError: true,
 		},
 	}
 
@@ -254,9 +261,9 @@ func TestParser_ErrorHandling(t *testing.T) {
 		// Valid header but malformed tuple (incomplete field count)
 		data := []byte("PGCOPY\n\377\r\n\000\x00\x00\x00\x00\x00\x00\x00\x00\x00") // truncated
 		parser := pgarrow.NewParser(bytes.NewReader(data), []uint32{})
-		
+
 		require.NoError(t, parser.ParseHeader())
-		
+
 		fields, err := parser.ParseTuple()
 		require.Error(t, err)
 		assert.Nil(t, fields)
@@ -266,31 +273,32 @@ func TestParser_ErrorHandling(t *testing.T) {
 		t.Parallel()
 		// Create data with invalid field length (positive but no data)
 		header := []byte("PGCOPY\n\377\r\n\000\x00\x00\x00\x00\x00\x00\x00\x00")
-		tupleHeader := []byte{0x00, 0x01} // 1 field
+		tupleHeader := []byte{0x00, 0x01}             // 1 field
 		fieldLength := []byte{0x00, 0x00, 0x00, 0x04} // length=4 but no data follows
 		trailer := []byte{0xFF, 0xFF}
-		
+
 		data := append(header, tupleHeader...)
 		data = append(data, fieldLength...)
 		data = append(data, trailer...)
-		
+
 		parser := pgarrow.NewParser(bytes.NewReader(data), []uint32{pgarrow.TypeOIDInt4})
 		require.NoError(t, parser.ParseHeader())
-		
+
 		fields, err := parser.ParseTuple()
 		require.Error(t, err)
 		assert.Nil(t, fields)
 	})
 }
 
+
 // Benchmark tests for performance validation
 func BenchmarkParser_ParseHeader(b *testing.B) {
 	data := generateSimpleRow()
 	oids := getSimpleRowOIDs()
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		parser := pgarrow.NewParser(bytes.NewReader(data), oids)
 		err := parser.ParseHeader()
@@ -303,17 +311,17 @@ func BenchmarkParser_ParseHeader(b *testing.B) {
 func BenchmarkParser_ParseTuple(b *testing.B) {
 	data := generateMultiTypeRow()
 	oids := getMultiTypeRowOIDs()
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		parser := pgarrow.NewParser(bytes.NewReader(data), oids)
 		err := parser.ParseHeader()
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		fields, err := parser.ParseTuple()
 		if err != nil {
 			b.Fatal(err)
@@ -352,12 +360,12 @@ func BenchmarkParser_ParseField(b *testing.B) {
 			oid:  pgarrow.TypeOIDInt4,
 		},
 	}
-	
+
 	for _, bm := range benchmarks {
 		b.Run(bm.name, func(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
-			
+
 			for i := 0; i < b.N; i++ {
 				parser := pgarrow.NewParser(bytes.NewReader(bm.data), []uint32{bm.oid})
 				field, err := parser.ParseField(0)
@@ -383,17 +391,17 @@ func BenchmarkParser_LargeDataset(b *testing.B) {
 		pgarrow.TypeOIDFloat4, // float32(i+j) * 2.71828
 		pgarrow.TypeOIDInt4,   // Cycle back to start (j % 7 wraps around)
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		parser := pgarrow.NewParser(bytes.NewReader(data), oids)
 		err := parser.ParseHeader()
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		rowCount := 0
 		for {
 			fields, err := parser.ParseTuple()
@@ -406,7 +414,7 @@ func BenchmarkParser_LargeDataset(b *testing.B) {
 			rowCount++
 			_ = fields
 		}
-		
+
 		if rowCount != 10000 {
 			b.Fatalf("expected 10000 rows, got %d", rowCount)
 		}
