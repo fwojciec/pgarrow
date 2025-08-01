@@ -79,6 +79,14 @@ The project uses Test-Driven Development (TDD) with:
 - **Test Framework**: `github.com/stretchr/testify` for assertions
 - **Mocking**: `github.com/pashagolub/pgxmock/v4` for database interactions
 
+### Testing Guidelines
+
+- **Test Packages**: All tests must use `*_test` package naming (e.g., `pgarrow_test`)
+- **Parallel Execution**: All tests must call `t.Parallel()` for concurrent execution
+- **Memory Safety**: Arrow tests must use `memory.NewCheckedAllocator()` with `t.Cleanup(func() { alloc.AssertSize(t, 0) })`
+- **Resource Management**: Proper `defer record.Release()` and `defer builder.Release()` patterns
+- **Error Assertions**: Use `require.Error()` for error checks, `assert.Error()` for non-critical validations
+
 ### Test Data Generation
 Helper functions generate valid PostgreSQL binary COPY format for testing without requiring a live database connection.
 
