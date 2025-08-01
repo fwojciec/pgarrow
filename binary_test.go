@@ -11,6 +11,7 @@ import (
 )
 
 func TestParser_ParseHeader(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		data        []byte
@@ -44,12 +45,13 @@ func TestParser_ParseHeader(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Use empty OID slice for header tests since we only test header parsing
 			parser := pgarrow.NewParser(bytes.NewReader(tt.data), []uint32{})
 			err := parser.ParseHeader()
 
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errorMsg != "" {
 					assert.Contains(t, err.Error(), tt.errorMsg)
 				}
@@ -61,7 +63,9 @@ func TestParser_ParseHeader(t *testing.T) {
 }
 
 func TestParser_ParseTuple(t *testing.T) {
+	t.Parallel()
 	t.Run("simple tuple parsing", func(t *testing.T) {
+		t.Parallel()
 		data := generateSimpleRow()
 		oids := getSimpleRowOIDs()
 		parser := pgarrow.NewParser(bytes.NewReader(data), oids)
@@ -84,6 +88,7 @@ func TestParser_ParseTuple(t *testing.T) {
 	})
 
 	t.Run("multi-type tuple parsing", func(t *testing.T) {
+		t.Parallel()
 		data := generateMultiTypeRow()
 		oids := getMultiTypeRowOIDs()
 		parser := pgarrow.NewParser(bytes.NewReader(data), oids)
@@ -106,6 +111,7 @@ func TestParser_ParseTuple(t *testing.T) {
 	})
 
 	t.Run("EOF detection", func(t *testing.T) {
+		t.Parallel()
 		data := generateEmptyDataset()
 		// Empty OIDs for empty dataset
 		parser := pgarrow.NewParser(bytes.NewReader(data), []uint32{})
@@ -119,6 +125,7 @@ func TestParser_ParseTuple(t *testing.T) {
 	})
 
 	t.Run("multiple tuples", func(t *testing.T) {
+		t.Parallel()
 		rows := [][]interface{}{
 			{int32(1), "first"},
 			{int32(2), "second"},
@@ -149,6 +156,7 @@ func TestParser_ParseTuple(t *testing.T) {
 }
 
 func TestParser_ParseField(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		fieldData    []byte
@@ -216,11 +224,12 @@ func TestParser_ParseField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			parser := pgarrow.NewParser(bytes.NewReader(tt.fieldData), []uint32{tt.oid})
 			field, err := parser.ParseField(0)
 
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 				if tt.expectedVal == nil {
@@ -239,7 +248,9 @@ func TestParser_ParseField(t *testing.T) {
 }
 
 func TestParser_ErrorHandling(t *testing.T) {
+	t.Parallel()
 	t.Run("malformed tuple header", func(t *testing.T) {
+		t.Parallel()
 		// Valid header but malformed tuple (incomplete field count)
 		data := []byte("PGCOPY\n\377\r\n\000\x00\x00\x00\x00\x00\x00\x00\x00\x00") // truncated
 		parser := pgarrow.NewParser(bytes.NewReader(data), []uint32{})
@@ -247,11 +258,12 @@ func TestParser_ErrorHandling(t *testing.T) {
 		require.NoError(t, parser.ParseHeader())
 		
 		fields, err := parser.ParseTuple()
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, fields)
 	})
 
 	t.Run("invalid field length", func(t *testing.T) {
+		t.Parallel()
 		// Create data with invalid field length (positive but no data)
 		header := []byte("PGCOPY\n\377\r\n\000\x00\x00\x00\x00\x00\x00\x00\x00")
 		tupleHeader := []byte{0x00, 0x01} // 1 field
@@ -266,7 +278,7 @@ func TestParser_ErrorHandling(t *testing.T) {
 		require.NoError(t, parser.ParseHeader())
 		
 		fields, err := parser.ParseTuple()
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, fields)
 	})
 }
