@@ -211,8 +211,16 @@ func (rb *RecordBuilder) NewRecord() (arrow.Record, error) {
 		arrays[i] = builder.NewArray()
 	}
 
+	// Handle empty arrays case
+	var numRows int64
+	if len(arrays) == 0 {
+		numRows = 0
+	} else {
+		numRows = int64(arrays[0].Len())
+	}
+
 	// Create record
-	record := array.NewRecord(rb.schema, arrays, int64(arrays[0].Len()))
+	record := array.NewRecord(rb.schema, arrays, numRows)
 
 	// Release arrays (record has retained them)
 	for _, arr := range arrays {
