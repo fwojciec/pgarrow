@@ -4,31 +4,31 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
-	
+
 	"github.com/fwojciec/pgarrow"
 )
 
 // buildMockBinaryData generates valid PostgreSQL COPY binary format data for testing
 func buildMockBinaryData(rows [][]interface{}) []byte {
 	buf := &bytes.Buffer{}
-	
+
 	// Write PGCOPY header
 	buf.WriteString("PGCOPY\n\377\r\n\000")
-	
+
 	// Write flags (4 bytes, network byte order)
 	_ = binary.Write(buf, binary.BigEndian, uint32(0))
-	
+
 	// Write header extension area length (4 bytes, network byte order)
 	_ = binary.Write(buf, binary.BigEndian, uint32(0))
-	
+
 	// Write each row
 	for _, row := range rows {
 		writeRowBinary(buf, row)
 	}
-	
+
 	// Write trailer (-1 as 16-bit integer)
 	_ = binary.Write(buf, binary.BigEndian, int16(-1))
-	
+
 	return buf.Bytes()
 }
 
@@ -36,7 +36,7 @@ func buildMockBinaryData(rows [][]interface{}) []byte {
 func writeRowBinary(buf *bytes.Buffer, row []interface{}) {
 	// Write field count (2 bytes, network byte order)
 	_ = binary.Write(buf, binary.BigEndian, int16(len(row)))
-	
+
 	// Write each field
 	for _, field := range row {
 		writeFieldBinary(buf, field)
@@ -50,7 +50,7 @@ func writeFieldBinary(buf *bytes.Buffer, field interface{}) {
 		_ = binary.Write(buf, binary.BigEndian, int32(-1))
 		return
 	}
-	
+
 	switch v := field.(type) {
 	case bool:
 		// Boolean: 1 byte
@@ -60,38 +60,38 @@ func writeFieldBinary(buf *bytes.Buffer, field interface{}) {
 		} else {
 			buf.WriteByte(0x00)
 		}
-		
+
 	case int16:
 		// int2: 2 bytes
 		_ = binary.Write(buf, binary.BigEndian, int32(2))
 		_ = binary.Write(buf, binary.BigEndian, v)
-		
+
 	case int32:
 		// int4: 4 bytes
 		_ = binary.Write(buf, binary.BigEndian, int32(4))
 		_ = binary.Write(buf, binary.BigEndian, v)
-		
+
 	case int64:
 		// int8: 8 bytes
 		_ = binary.Write(buf, binary.BigEndian, int32(8))
 		_ = binary.Write(buf, binary.BigEndian, v)
-		
+
 	case float32:
 		// float4: 4 bytes
 		_ = binary.Write(buf, binary.BigEndian, int32(4))
 		_ = binary.Write(buf, binary.BigEndian, math.Float32bits(v))
-		
+
 	case float64:
 		// float8: 8 bytes
 		_ = binary.Write(buf, binary.BigEndian, int32(8))
 		_ = binary.Write(buf, binary.BigEndian, math.Float64bits(v))
-		
+
 	case string:
 		// text: variable length UTF-8
 		data := []byte(v)
 		_ = binary.Write(buf, binary.BigEndian, int32(len(data)))
 		buf.Write(data)
-		
+
 	default:
 		// Unsupported type, write as NULL
 		_ = binary.Write(buf, binary.BigEndian, int32(-1))
@@ -101,10 +101,10 @@ func writeFieldBinary(buf *bytes.Buffer, field interface{}) {
 // generateTestRows creates various test data scenarios for benchmarking and testing
 func generateTestRows(rowCount int, fieldsPerRow int) [][]interface{} {
 	rows := make([][]interface{}, rowCount)
-	
+
 	for i := 0; i < rowCount; i++ {
 		row := make([]interface{}, fieldsPerRow)
-		
+
 		for j := 0; j < fieldsPerRow; j++ {
 			// Cycle through different data types
 			switch j % 7 {
@@ -128,10 +128,10 @@ func generateTestRows(rowCount int, fieldsPerRow int) [][]interface{} {
 				row[j] = float32(i+j) * 2.71828
 			}
 		}
-		
+
 		rows[i] = row
 	}
-	
+
 	return rows
 }
 
@@ -154,14 +154,14 @@ func generateSimpleRow() []byte {
 func generateMultiTypeRow() []byte {
 	rows := [][]interface{}{
 		{
-			true,                    // bool
-			int16(1000),            // int2  
-			int32(1000000),         // int4
-			int64(1000000000000),   // int8
-			float32(3.14159),       // float4
+			true,                       // bool
+			int16(1000),                // int2
+			int32(1000000),             // int4
+			int64(1000000000000),       // int8
+			float32(3.14159),           // float4
 			float64(3.141592653589793), // float8
-			"Hello, World!",        // text
-			nil,                    // NULL value
+			"Hello, World!",            // text
+			nil,                        // NULL value
 		},
 	}
 	return buildMockBinaryData(rows)
