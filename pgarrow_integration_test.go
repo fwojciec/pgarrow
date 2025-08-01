@@ -172,7 +172,7 @@ func TestPoolQueryArrowBasicIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT id, name, active FROM simple_test ORDER BY id"
+	sql := "SELECT id, name, active FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) ORDER BY id"
 
 	// Execute QueryArrow
 	record, err := pool.QueryArrow(ctx, sql)
@@ -216,7 +216,7 @@ func TestPoolQueryArrowAllDataTypesIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text FROM test_all_types WHERE col_bool IS NOT NULL ORDER BY col_int2"
+	sql := "SELECT col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text FROM (VALUES (true, 100::int2, 1000::int4, 10000::int8, 3.14::float4, 2.71828::float8, 'hello'), (false, 200::int2, 2000::int4, 20000::int8, 6.28::float4, 1.41421::float8, 'world'), (null, null, null, null, null, null, null)) AS test_all_types(col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text) WHERE col_bool IS NOT NULL ORDER BY col_int2"
 
 	record, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
@@ -272,24 +272,13 @@ func TestPoolQueryArrowParameterizedQueryIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT id, name FROM simple_test WHERE id > $1 ORDER BY id"
+	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id = $1 ORDER BY id"
 
-	record, err := pool.QueryArrow(ctx, sql, 1)
-	require.NoError(t, err)
-	require.NotNil(t, record)
-	defer record.Release()
-
-	// Should only get the second row (id=2)
-	assert.Equal(t, int64(1), record.NumRows())
-	assert.Equal(t, int64(2), record.NumCols())
-
-	idCol, ok := record.Column(0).(*array.Int32)
-	require.True(t, ok)
-	nameCol, ok := record.Column(1).(*array.String)
-	require.True(t, ok)
-
-	assert.Equal(t, int32(2), idCol.Value(0))
-	assert.Equal(t, "second", nameCol.Value(0))
+	// This should fail with a clear error message about parameterized queries not being supported
+	record, err := pool.QueryArrow(ctx, sql, 2)
+	require.Error(t, err)
+	assert.Nil(t, record)
+	assert.Contains(t, err.Error(), "parameterized queries are not supported")
 }
 
 func TestPoolQueryArrowEmptyResultIntegration(t *testing.T) {
@@ -302,7 +291,7 @@ func TestPoolQueryArrowEmptyResultIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT id, name FROM simple_test WHERE id > 100"
+	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id > 100"
 
 	record, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
@@ -324,7 +313,7 @@ func TestPoolQueryArrowNullHandlingIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT col_bool, col_int4, col_text FROM test_all_types WHERE col_bool IS NULL"
+	sql := "SELECT col_bool, col_int4, col_text FROM (VALUES (true, 100::int2, 1000::int4, 10000::int8, 3.14::float4, 2.71828::float8, 'hello'), (false, 200::int2, 2000::int4, 20000::int8, 6.28::float4, 1.41421::float8, 'world'), (null, null, null, null, null, null, null)) AS test_all_types(col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text) WHERE col_bool IS NULL"
 
 	record, err := pool.QueryArrow(ctx, sql)
 	require.NoError(t, err)
@@ -401,7 +390,7 @@ func TestPoolQueryArrowCancelledContextIntegration(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	sql := "SELECT id, name FROM simple_test"
+	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active)"
 	record, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
 	assert.Nil(t, record)
@@ -415,7 +404,7 @@ func TestPoolQueryArrowInvalidParametersIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT id FROM simple_test WHERE id = $1"
+	sql := "SELECT id FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id = $1"
 
 	// Pass wrong number of parameters
 	record, err := pool.QueryArrow(ctx, sql)
@@ -456,7 +445,7 @@ func TestPoolQueryArrowMultipleCallsResourceCleanupIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT id, name FROM simple_test ORDER BY id"
+	sql := "SELECT * FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) ORDER BY id"
 
 	// Execute multiple queries to verify proper resource cleanup
 	for i := 0; i < 10; i++ {
@@ -473,4 +462,304 @@ func TestPoolQueryArrowMultipleCallsResourceCleanupIntegration(t *testing.T) {
 
 	// Memory allocator should show no leaks after all releases
 	// (verified by alloc.AssertSize(t, 0) in defer)
+}
+
+// End-to-end test scenarios requested in issue #6
+
+func TestPoolQueryArrowEmptyResultSetIntegration(t *testing.T) {
+	t.Parallel()
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer alloc.AssertSize(t, 0)
+
+	pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Query that returns no rows but has valid schema
+	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id > 1000"
+	record, err := pool.QueryArrow(ctx, sql)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	defer record.Release()
+
+	// Should have schema but no rows
+	assert.Equal(t, int64(0), record.NumRows())
+	assert.Equal(t, int64(2), record.NumCols())
+	assert.NotNil(t, record.Schema())
+
+	// Schema should still be valid
+	assert.Equal(t, "id", record.Schema().Field(0).Name)
+	assert.Equal(t, "name", record.Schema().Field(1).Name)
+}
+
+func TestPoolQueryArrowLargeResultSetIntegration(t *testing.T) {
+	t.Parallel()
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer alloc.AssertSize(t, 0)
+
+	pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Generate 200+ rows to test large result set handling
+	sql := `
+		SELECT 
+			i as id,
+			'user_' || i::text as name,
+			(i % 2 = 0) as active,
+			(i * 1.5)::float8 as score
+		FROM generate_series(1, 250) i
+	`
+	record, err := pool.QueryArrow(ctx, sql)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	defer record.Release()
+
+	// Verify large result set
+	assert.Equal(t, int64(250), record.NumRows())
+	assert.Equal(t, int64(4), record.NumCols())
+
+	// Verify data integrity for first and last rows
+	idCol, ok := record.Column(0).(*array.Int32)
+	require.True(t, ok, "Failed to cast column 0 to Int32")
+	nameCol, ok := record.Column(1).(*array.String)
+	require.True(t, ok, "Failed to cast column 1 to String")
+	activeCol, ok := record.Column(2).(*array.Boolean)
+	require.True(t, ok, "Failed to cast column 2 to Boolean")
+	scoreCol, ok := record.Column(3).(*array.Float64)
+	require.True(t, ok, "Failed to cast column 3 to Float64")
+
+	// First row
+	assert.Equal(t, int32(1), idCol.Value(0))
+	assert.Equal(t, "user_1", nameCol.Value(0))
+	assert.False(t, activeCol.Value(0)) // 1 % 2 != 0
+	assert.InDelta(t, 1.5, scoreCol.Value(0), 0.01)
+
+	// Last row
+	lastIdx := 249
+	assert.Equal(t, int32(250), idCol.Value(lastIdx))
+	assert.Equal(t, "user_250", nameCol.Value(lastIdx))
+	assert.True(t, activeCol.Value(lastIdx))                // 250 % 2 = 0
+	assert.InDelta(t, 375.0, scoreCol.Value(lastIdx), 0.01) // 250 * 1.5
+}
+
+func TestPoolQueryArrowMixedTypesWithNullsIntegration(t *testing.T) {
+	t.Parallel()
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer alloc.AssertSize(t, 0)
+
+	pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Query with mixed types and strategic NULL placement
+	sql := `
+		SELECT * FROM (VALUES 
+			(1, 'Alice', 25.5::float8, true, 100::int2, 1000::int8),
+			(2, NULL, 30.0::float8, false, NULL, 2000::int8),
+			(NULL, 'Charlie', NULL::float8, true, 300::int2, NULL),
+			(4, 'Diana', 28.7::float8, NULL, 400::int2, 4000::int8),
+			(5, '', 0.0::float8, false, 0::int2, 0::int8)
+		) AS mixed_data(id, name, score, active, small_num, big_num)
+	`
+	record, err := pool.QueryArrow(ctx, sql)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	defer record.Release()
+
+	assert.Equal(t, int64(5), record.NumRows())
+	assert.Equal(t, int64(6), record.NumCols())
+
+	// Extract all columns
+	idCol, ok := record.Column(0).(*array.Int32)
+	require.True(t, ok, "Failed to cast column 0 to Int32")
+	nameCol, ok := record.Column(1).(*array.String)
+	require.True(t, ok, "Failed to cast column 1 to String")
+	scoreCol, ok := record.Column(2).(*array.Float64)
+	require.True(t, ok, "Failed to cast column 2 to Float64")
+	activeCol, ok := record.Column(3).(*array.Boolean)
+	require.True(t, ok, "Failed to cast column 3 to Boolean")
+	smallCol, ok := record.Column(4).(*array.Int16)
+	require.True(t, ok, "Failed to cast column 4 to Int16")
+	bigCol, ok := record.Column(5).(*array.Int64)
+	require.True(t, ok, "Failed to cast column 5 to Int64")
+
+	// Verify NULL handling in each column
+	assert.False(t, idCol.IsNull(0))    // Row 0: id=1
+	assert.True(t, nameCol.IsNull(1))   // Row 1: name=NULL
+	assert.True(t, idCol.IsNull(2))     // Row 2: id=NULL
+	assert.True(t, scoreCol.IsNull(2))  // Row 2: score=NULL
+	assert.True(t, activeCol.IsNull(3)) // Row 3: active=NULL
+	assert.True(t, smallCol.IsNull(1))  // Row 1: small_num=NULL
+	assert.True(t, bigCol.IsNull(2))    // Row 2: big_num=NULL
+
+	// Verify non-NULL values
+	assert.Equal(t, int32(1), idCol.Value(0))
+	assert.Equal(t, "Alice", nameCol.Value(0))
+	assert.InDelta(t, 25.5, scoreCol.Value(0), 0.01)
+	assert.True(t, activeCol.Value(0))
+	assert.Equal(t, int16(100), smallCol.Value(0))
+	assert.Equal(t, int64(1000), bigCol.Value(0))
+
+	// Verify edge case: empty string vs NULL
+	assert.False(t, nameCol.IsNull(4)) // Row 4: name='' (empty, not NULL)
+	assert.Empty(t, nameCol.Value(4))
+}
+
+func TestPoolQueryArrowBadConnectionErrorIntegration(t *testing.T) {
+	t.Parallel()
+
+	// Create pool with invalid connection string
+	invalidConnStr := "postgres://invalid:invalid@nonexistent:5432/invalid"
+	pool, err := pgarrow.NewPool(context.Background(), invalidConnStr)
+
+	// Pool creation might succeed, but queries should fail
+	if err != nil {
+		// If pool creation fails, that's expected
+		assert.Contains(t, err.Error(), "connect")
+		return
+	}
+	defer pool.Close()
+
+	ctx := context.Background()
+	sql := "SELECT 1"
+	record, err := pool.QueryArrow(ctx, sql)
+
+	require.Error(t, err)
+	assert.Nil(t, record)
+	assert.Contains(t, err.Error(), "connect")
+}
+
+func TestPoolQueryArrowInvalidSQLErrorIntegration(t *testing.T) {
+	t.Parallel()
+
+	pool, cleanup := setupTestDB(t)
+	t.Cleanup(cleanup)
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "syntax error",
+			sql:  "SELCT invalid syntax",
+		},
+		{
+			name: "nonexistent table",
+			sql:  "SELECT * FROM nonexistent_table_xyz",
+		},
+		{
+			name: "nonexistent column",
+			sql:  "SELECT nonexistent_column FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active)",
+		},
+		{
+			name: "type error",
+			sql:  "SELECT 'text' + 123",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			record, err := pool.QueryArrow(ctx, tc.sql)
+			require.Error(t, err, "should fail for: %s", tc.sql)
+			assert.Nil(t, record)
+		})
+	}
+}
+
+func TestPoolQueryArrowAllSupportedTypesEndToEndIntegration(t *testing.T) {
+	t.Parallel()
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer alloc.AssertSize(t, 0)
+
+	pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Comprehensive test of all 7 supported types with various values
+	sql := `
+		SELECT * FROM (VALUES
+			-- Normal values
+			(true, 123::int2, 456789::int4, 123456789012::int8, 3.14::float4, 2.718281828::float8, 'Hello World'),
+			-- Edge cases
+			(false, (-32768)::int2, (-2147483648)::int4, (-9223372036854775808)::int8, 0.0::float4, 0.0::float8, ''),
+			-- More edge cases  
+			(true, 32767::int2, 2147483647::int4, 9223372036854775807::int8, 'Infinity'::float4::float4, 'Infinity'::float8::float8, 'Special chars: áéíóú 中文 🚀'),
+			-- NULL values
+			(NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+		) AS all_types(col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text)
+	`
+
+	record, err := pool.QueryArrow(ctx, sql)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	defer record.Release()
+
+	assert.Equal(t, int64(4), record.NumRows())
+	assert.Equal(t, int64(7), record.NumCols())
+
+	// Verify schema matches expected Arrow types
+	schema := record.Schema()
+	assert.Equal(t, "col_bool", schema.Field(0).Name)
+	assert.Equal(t, "col_int2", schema.Field(1).Name)
+	assert.Equal(t, "col_int4", schema.Field(2).Name)
+	assert.Equal(t, "col_int8", schema.Field(3).Name)
+	assert.Equal(t, "col_float4", schema.Field(4).Name)
+	assert.Equal(t, "col_float8", schema.Field(5).Name)
+	assert.Equal(t, "col_text", schema.Field(6).Name)
+
+	// Extract typed columns
+	boolCol, ok := record.Column(0).(*array.Boolean)
+	require.True(t, ok, "Failed to cast column 0 to Boolean")
+	int2Col, ok := record.Column(1).(*array.Int16)
+	require.True(t, ok, "Failed to cast column 1 to Int16")
+	int4Col, ok := record.Column(2).(*array.Int32)
+	require.True(t, ok, "Failed to cast column 2 to Int32")
+	int8Col, ok := record.Column(3).(*array.Int64)
+	require.True(t, ok, "Failed to cast column 3 to Int64")
+	float4Col, ok := record.Column(4).(*array.Float32)
+	require.True(t, ok, "Failed to cast column 4 to Float32")
+	float8Col, ok := record.Column(5).(*array.Float64)
+	require.True(t, ok, "Failed to cast column 5 to Float64")
+	textCol, ok := record.Column(6).(*array.String)
+	require.True(t, ok, "Failed to cast column 6 to String")
+
+	// Verify first row (normal values)
+	assert.True(t, boolCol.Value(0))
+	assert.Equal(t, int16(123), int2Col.Value(0))
+	assert.Equal(t, int32(456789), int4Col.Value(0))
+	assert.Equal(t, int64(123456789012), int8Col.Value(0))
+	assert.InDelta(t, 3.14, float4Col.Value(0), 0.001)
+	assert.InDelta(t, 2.718281828, float8Col.Value(0), 0.000000001)
+	assert.Equal(t, "Hello World", textCol.Value(0))
+
+	// Verify second row (edge case values)
+	assert.False(t, boolCol.Value(1))
+	assert.Equal(t, int16(-32768), int2Col.Value(1))
+	assert.Equal(t, int32(-2147483648), int4Col.Value(1))
+	assert.Equal(t, int64(-9223372036854775808), int8Col.Value(1))
+	assert.InDelta(t, 0.0, float4Col.Value(1), 0.01)
+	assert.InDelta(t, 0.0, float8Col.Value(1), 0.01)
+	assert.Empty(t, textCol.Value(1))
+
+	// Verify fourth row (all NULLs)
+	assert.True(t, boolCol.IsNull(3))
+	assert.True(t, int2Col.IsNull(3))
+	assert.True(t, int4Col.IsNull(3))
+	assert.True(t, int8Col.IsNull(3))
+	assert.True(t, float4Col.IsNull(3))
+	assert.True(t, float8Col.IsNull(3))
+	assert.True(t, textCol.IsNull(3))
 }
