@@ -67,7 +67,7 @@ func NewPool(ctx context.Context, connString string) (*Pool, error) {
 //	// Access data using Arrow arrays
 //	idCol := record.Column(0).(*array.Int32)
 //	nameCol := record.Column(1).(*array.String)
-func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...interface{}) (arrow.Record, error) {
+func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (arrow.Record, error) {
 	// Check for parameterized queries - COPY TO BINARY doesn't support parameters
 	if len(args) > 0 {
 		return nil, fmt.Errorf("parameterized queries are not supported with COPY TO BINARY protocol - use literal values in SQL instead")
@@ -95,7 +95,7 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...interface{}) 
 }
 
 // getQueryMetadata executes query to extract column metadata and create Arrow schema
-func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql string, args ...interface{}) (*arrow.Schema, []uint32, error) {
+func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql string, args ...any) (*arrow.Schema, []uint32, error) {
 	rows, err := conn.Conn().Query(ctx, sql, args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to prepare query: %w", err)
@@ -184,7 +184,7 @@ func (p *Pool) parseDataToRecord(reader io.Reader, schema *arrow.Schema, fieldOI
 			return nil, fmt.Errorf("failed to parse tuple: %w", err)
 		}
 
-		values := make([]interface{}, len(fields))
+		values := make([]any, len(fields))
 		for i, field := range fields {
 			values[i] = field.Value
 		}

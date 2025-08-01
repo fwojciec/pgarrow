@@ -31,7 +31,7 @@ type Parser struct {
 
 // Field represents a parsed field from binary data
 type Field struct {
-	Value interface{}
+	Value any
 }
 
 // NewParser creates a new binary format parser with explicit field type information
@@ -170,7 +170,7 @@ func (p *Parser) ParseField(fieldIndex int) (Field, error) {
 }
 
 // parseFieldData interprets field data using explicit PostgreSQL type information
-func (p *Parser) parseFieldData(data []byte, oid uint32) (interface{}, error) {
+func (p *Parser) parseFieldData(data []byte, oid uint32) (any, error) {
 	switch oid {
 	case TypeOIDBool:
 		if len(data) != 1 {

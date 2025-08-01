@@ -45,6 +45,8 @@ Thumbs.db
 # Example binaries (created when running go run from root)
 /simple
 /types
+examples/simple/simple
+examples/types/types
 
 # Temporary files
 *.tmp

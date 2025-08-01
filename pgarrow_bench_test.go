@@ -82,7 +82,7 @@ func BenchmarkQueryArrowVsPgxText(b *testing.B) {
 				}()
 
 				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
+				for b.Loop() {
 					record, err := pool.QueryArrow(ctx, bm.sql)
 					if err != nil {
 						b.Fatalf("PGArrow query failed: %v", err)
@@ -98,7 +98,7 @@ func BenchmarkQueryArrowVsPgxText(b *testing.B) {
 
 			b.Run("PgxText", func(b *testing.B) {
 				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
+				for b.Loop() {
 					rows, err := conn.Query(ctx, bm.sql)
 					if err != nil {
 						b.Fatalf("pgx query failed: %v", err)
@@ -135,7 +135,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 
 	b.Run("PGArrow", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			record, err := pool.QueryArrow(ctx, sql)
 			if err != nil {
 				b.Fatalf("PGArrow query failed: %v", err)
@@ -146,7 +146,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 
 	b.Run("PgxText", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			rows, err := conn.Query(ctx, sql)
 			if err != nil {
 				b.Fatalf("pgx query failed: %v", err)
@@ -175,7 +175,7 @@ func BenchmarkConnectionInitialization(b *testing.B) {
 
 	b.Run("PGArrow", func(b *testing.B) {
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			pool, err := pgarrow.NewPool(context.Background(), databaseURL)
 			if err != nil {
 				b.Fatalf("Failed to create pool: %v", err)
@@ -188,7 +188,7 @@ func BenchmarkConnectionInitialization(b *testing.B) {
 	// but this benchmark shows PGArrow's instant connection capability
 	b.Run("PgxPool", func(b *testing.B) {
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			conn, err := pgx.Connect(context.Background(), databaseURL)
 			if err != nil {
 				b.Fatalf("Failed to connect: %v", err)
@@ -244,7 +244,7 @@ func BenchmarkDataTypeConversion(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			b.Run("PGArrow", func(b *testing.B) {
 				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
+				for b.Loop() {
 					record, err := pool.QueryArrow(ctx, tt.sql)
 					if err != nil {
 						b.Fatalf("Query failed: %v", err)
@@ -258,14 +258,14 @@ func BenchmarkDataTypeConversion(b *testing.B) {
 
 			b.Run("PgxText", func(b *testing.B) {
 				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
+				for b.Loop() {
 					rows, err := conn.Query(ctx, tt.sql)
 					if err != nil {
 						b.Fatalf("Query failed: %v", err)
 					}
 
 					for rows.Next() {
-						var val interface{}
+						var val any
 						err := rows.Scan(&val)
 						if err != nil {
 							b.Fatalf("Scan failed: %v", err)
