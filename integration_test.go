@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/fwojciec/pgarrow"
@@ -325,7 +327,7 @@ func TestPoolQueryArrowNullHandlingIntegration(t *testing.T) {
 	assert.Equal(t, int64(3), record.NumCols())
 
 	// Verify all values are null
-	for i := 0; i < int(record.NumCols()); i++ {
+	for i := range int(record.NumCols()) {
 		assert.False(t, record.Column(i).IsValid(0), "Column %d should be NULL", i)
 	}
 }
@@ -448,7 +450,7 @@ func TestPoolQueryArrowMultipleCallsResourceCleanupIntegration(t *testing.T) {
 	sql := "SELECT * FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) ORDER BY id"
 
 	// Execute multiple queries to verify proper resource cleanup
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		record, err := pool.QueryArrow(ctx, sql)
 		require.NoError(t, err)
 		require.NotNil(t, record)
@@ -762,4 +764,414 @@ func TestPoolQueryArrowAllSupportedTypesEndToEndIntegration(t *testing.T) {
 	assert.True(t, float4Col.IsNull(3))
 	assert.True(t, float8Col.IsNull(3))
 	assert.True(t, textCol.IsNull(3))
+}
+
+// TestIsolatedTestEnvHelper is a test to verify our isolated test environment helper works
+func TestIsolatedTestEnvHelper(t *testing.T) {
+	t.Parallel()
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer alloc.AssertSize(t, 0)
+
+	ctx := context.Background()
+
+	// Helper function to create isolated test environment per subtest
+	createIsolatedTestEnv := func(t *testing.T, setupSQL string) (*pgarrow.Pool, func()) {
+		t.Helper()
+
+		databaseURL := getTestDatabaseURL(t)
+		schemaName := fmt.Sprintf("test_%s_%d", randomID(), time.Now().UnixNano())
+
+		// Create schema
+		conn, err := pgx.Connect(ctx, databaseURL)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(ctx, fmt.Sprintf("CREATE SCHEMA %s", schemaName))
+		require.NoError(t, err)
+
+		// Setup connection with schema
+		connConfig, err := pgx.ParseConfig(databaseURL)
+		require.NoError(t, err)
+		connConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s,public", schemaName)
+
+		// Setup test data
+		if setupSQL != "" {
+			schemaConn, err := pgx.ConnectConfig(ctx, connConfig)
+			require.NoError(t, err)
+			defer schemaConn.Close(ctx)
+
+			_, err = schemaConn.Exec(ctx, setupSQL)
+			require.NoError(t, err)
+		}
+
+		// Create pool for this schema - manually add search_path since ConnString() doesn't preserve runtime params
+		baseConnStr := connConfig.ConnString()
+		connStrWithSchema := fmt.Sprintf("%s&search_path=%s,public", baseConnStr, schemaName)
+		pool, err := pgarrow.NewPool(ctx, connStrWithSchema)
+		require.NoError(t, err)
+
+		cleanup := func() {
+			pool.Close()
+			_, _ = conn.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName))
+			conn.Close(ctx)
+		}
+
+		return pool, cleanup
+	}
+
+	setupSQL := `CREATE TABLE test_simple (id int4, name text); INSERT INTO test_simple VALUES (1, 'test');`
+	testPool, cleanup := createIsolatedTestEnv(t, setupSQL)
+	defer cleanup()
+
+	// Test that we can query our custom table
+	record, err := testPool.QueryArrow(ctx, "SELECT * FROM test_simple")
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	defer record.Release()
+
+	assert.Equal(t, int64(1), record.NumRows())
+	assert.Equal(t, int64(2), record.NumCols())
+}
+
+// TestQueryArrowDataTypes is a comprehensive table-based test covering all PostgreSQL data types
+// This replaces multiple unit test files with a single comprehensive integration test
+func TestQueryArrowDataTypes(t *testing.T) {
+	t.Parallel()
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	t.Cleanup(func() { alloc.AssertSize(t, 0) })
+
+	ctx := context.Background()
+
+	// Helper function to create isolated test environment per subtest
+	createIsolatedTestEnv := func(t *testing.T, setupSQL string) (*pgarrow.Pool, func()) {
+		t.Helper()
+
+		databaseURL := getTestDatabaseURL(t)
+		schemaName := fmt.Sprintf("test_%s_%d", randomID(), time.Now().UnixNano())
+
+		// Create schema
+		conn, err := pgx.Connect(ctx, databaseURL)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(ctx, fmt.Sprintf("CREATE SCHEMA %s", schemaName))
+		require.NoError(t, err)
+
+		// Setup connection with schema
+		connConfig, err := pgx.ParseConfig(databaseURL)
+		require.NoError(t, err)
+		connConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s,public", schemaName)
+
+		// Setup test data
+		if setupSQL != "" {
+			schemaConn, err := pgx.ConnectConfig(ctx, connConfig)
+			require.NoError(t, err)
+			defer schemaConn.Close(ctx)
+
+			_, err = schemaConn.Exec(ctx, setupSQL)
+			require.NoError(t, err)
+		}
+
+		// Create pool for this schema - manually add search_path since ConnString() doesn't preserve runtime params
+		baseConnStr := connConfig.ConnString()
+		connStrWithSchema := fmt.Sprintf("%s&search_path=%s,public", baseConnStr, schemaName)
+		pool, err := pgarrow.NewPool(ctx, connStrWithSchema)
+		require.NoError(t, err)
+
+		cleanup := func() {
+			pool.Close()
+			_, _ = conn.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName))
+			conn.Close(ctx)
+		}
+
+		return pool, cleanup
+	}
+
+	tests := []struct {
+		name         string
+		setupSQL     string
+		querySQL     string
+		args         []any
+		expectedRows int64
+		expectedCols int64
+		validateFunc func(t *testing.T, record arrow.Record)
+	}{
+		{
+			name:         "bool_all_values",
+			setupSQL:     `CREATE TABLE test_bool (val bool); INSERT INTO test_bool VALUES (true), (false), (null);`,
+			querySQL:     "SELECT * FROM test_bool ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 3,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				boolCol, ok := record.Column(0).(*array.Boolean)
+				require.True(t, ok)
+
+				assert.False(t, boolCol.Value(0)) // false comes first
+				assert.True(t, boolCol.Value(1))  // then true
+				assert.True(t, boolCol.IsNull(2)) // NULL comes last
+			},
+		},
+		{
+			name:         "int2_edge_cases",
+			setupSQL:     `CREATE TABLE test_int2 (val int2); INSERT INTO test_int2 VALUES (32767), (-32768), (0), (null);`,
+			querySQL:     "SELECT * FROM test_int2 ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				int2Col, ok := record.Column(0).(*array.Int16)
+				require.True(t, ok)
+
+				assert.Equal(t, int16(-32768), int2Col.Value(0)) // MIN_INT16
+				assert.Equal(t, int16(0), int2Col.Value(1))
+				assert.Equal(t, int16(32767), int2Col.Value(2)) // MAX_INT16
+				assert.True(t, int2Col.IsNull(3))
+			},
+		},
+		{
+			name:         "int4_edge_cases",
+			setupSQL:     `CREATE TABLE test_int4 (val int4); INSERT INTO test_int4 VALUES (2147483647), (-2147483648), (0), (null);`,
+			querySQL:     "SELECT * FROM test_int4 ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				int4Col, ok := record.Column(0).(*array.Int32)
+				require.True(t, ok)
+
+				assert.Equal(t, int32(-2147483648), int4Col.Value(0)) // MIN_INT32
+				assert.Equal(t, int32(0), int4Col.Value(1))
+				assert.Equal(t, int32(2147483647), int4Col.Value(2)) // MAX_INT32
+				assert.True(t, int4Col.IsNull(3))
+			},
+		},
+		{
+			name:         "int8_edge_cases",
+			setupSQL:     `CREATE TABLE test_int8 (val int8); INSERT INTO test_int8 VALUES (9223372036854775807), (-9223372036854775808), (0), (null);`,
+			querySQL:     "SELECT * FROM test_int8 ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				int8Col, ok := record.Column(0).(*array.Int64)
+				require.True(t, ok)
+
+				assert.Equal(t, int64(-9223372036854775808), int8Col.Value(0)) // MIN_INT64
+				assert.Equal(t, int64(0), int8Col.Value(1))
+				assert.Equal(t, int64(9223372036854775807), int8Col.Value(2)) // MAX_INT64
+				assert.True(t, int8Col.IsNull(3))
+			},
+		},
+		{
+			name:         "float4_precision",
+			setupSQL:     `CREATE TABLE test_float4 (val float4); INSERT INTO test_float4 VALUES (3.14159), (-3.14159), (0.0), ('Infinity'::float4), ('-Infinity'::float4), ('NaN'::float4), (null);`,
+			querySQL:     "SELECT * FROM test_float4 ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 7,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				float4Col, ok := record.Column(0).(*array.Float32)
+				require.True(t, ok)
+
+				// Check for NaN, Infinity values (order might vary due to special float handling)
+				hasNaN := false
+				hasInf := false
+				hasNegInf := false
+				regularValues := []float32{}
+
+				for i := range int(record.NumRows()) - 1 { // -1 to skip NULL
+					if !float4Col.IsNull(i) {
+						val := float4Col.Value(i)
+						if val != val { // NaN check
+							hasNaN = true
+						} else if val == float32(math.Inf(1)) {
+							hasInf = true
+						} else if val == float32(math.Inf(-1)) {
+							hasNegInf = true
+						} else {
+							regularValues = append(regularValues, val)
+						}
+					}
+				}
+
+				assert.True(t, hasNaN, "Should have NaN value")
+				assert.True(t, hasInf, "Should have +Infinity")
+				assert.True(t, hasNegInf, "Should have -Infinity")
+				assert.Contains(t, regularValues, float32(3.14159))
+				assert.Contains(t, regularValues, float32(-3.14159))
+				assert.Contains(t, regularValues, float32(0.0))
+				assert.True(t, float4Col.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name:         "float8_precision",
+			setupSQL:     `CREATE TABLE test_float8 (val float8); INSERT INTO test_float8 VALUES (2.718281828459045), (-2.718281828459045), (0.0), ('Infinity'::float8), ('-Infinity'::float8), ('NaN'::float8), (null);`,
+			querySQL:     "SELECT * FROM test_float8 ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 7,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				float8Col, ok := record.Column(0).(*array.Float64)
+				require.True(t, ok)
+
+				// Similar validation as float4 but with higher precision
+				hasNaN := false
+				hasInf := false
+				hasNegInf := false
+				regularValues := []float64{}
+
+				for i := range int(record.NumRows()) - 1 {
+					if !float8Col.IsNull(i) {
+						val := float8Col.Value(i)
+						if val != val { // NaN check
+							hasNaN = true
+						} else if val == math.Inf(1) {
+							hasInf = true
+						} else if val == math.Inf(-1) {
+							hasNegInf = true
+						} else {
+							regularValues = append(regularValues, val)
+						}
+					}
+				}
+
+				assert.True(t, hasNaN, "Should have NaN value")
+				assert.True(t, hasInf, "Should have +Infinity")
+				assert.True(t, hasNegInf, "Should have -Infinity")
+				// Find the e value (2.718...) in regularValues
+				foundE := false
+				for _, val := range regularValues {
+					if val > 2.7 && val < 2.8 {
+						assert.InDelta(t, 2.718281828459045, val, 0.000000000000001)
+						foundE = true
+						break
+					}
+				}
+				assert.True(t, foundE, "Should find e value in regular values")
+				assert.True(t, float8Col.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name:         "text_encoding_cases",
+			setupSQL:     `CREATE TABLE test_text (val text); INSERT INTO test_text VALUES ('Hello World'), (''), ('Unicode: 🚀 αβγ 中文'), ('Special' || chr(10) || 'Chars' || chr(9) || '"'), (null);`,
+			querySQL:     "SELECT * FROM test_text ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 5,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				textCol, ok := record.Column(0).(*array.String)
+				require.True(t, ok)
+
+				values := make([]string, 0, record.NumRows()-1) // -1 for NULL
+				for i := range int(record.NumRows()) - 1 {
+					if !textCol.IsNull(i) {
+						values = append(values, textCol.Value(i))
+					}
+				}
+
+				assert.Contains(t, values, "")
+				assert.Contains(t, values, "Hello World")
+				assert.Contains(t, values, "Unicode: 🚀 αβγ 中文")
+				assert.Contains(t, values, "Special\nChars\t\"")
+				assert.True(t, textCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name: "mixed_types_literal_filter",
+			setupSQL: `CREATE TABLE test_mixed (id int4, name text, score float8, active bool); 
+					   INSERT INTO test_mixed VALUES (1, 'Alice', 95.5, true), (2, 'Bob', 87.2, false), (3, 'Charlie', 92.1, true);`,
+			querySQL:     "SELECT * FROM test_mixed WHERE score > 90.0 AND active = true ORDER BY score DESC",
+			args:         nil,
+			expectedRows: 2,
+			expectedCols: 4,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				// Verify schema
+				schema := record.Schema()
+				assert.Equal(t, "id", schema.Field(0).Name)
+				assert.Equal(t, "name", schema.Field(1).Name)
+				assert.Equal(t, "score", schema.Field(2).Name)
+				assert.Equal(t, "active", schema.Field(3).Name)
+
+				// Extract columns
+				idCol, ok := record.Column(0).(*array.Int32)
+				require.True(t, ok)
+				nameCol, ok := record.Column(1).(*array.String)
+				require.True(t, ok)
+				scoreCol, ok := record.Column(2).(*array.Float64)
+				require.True(t, ok)
+				activeCol, ok := record.Column(3).(*array.Boolean)
+				require.True(t, ok)
+
+				// First row should be Alice (highest score)
+				assert.Equal(t, int32(1), idCol.Value(0))
+				assert.Equal(t, "Alice", nameCol.Value(0))
+				assert.InDelta(t, 95.5, scoreCol.Value(0), 0.01)
+				assert.True(t, activeCol.Value(0))
+
+				// Second row should be Charlie
+				assert.Equal(t, int32(3), idCol.Value(1))
+				assert.Equal(t, "Charlie", nameCol.Value(1))
+				assert.InDelta(t, 92.1, scoreCol.Value(1), 0.01)
+				assert.True(t, activeCol.Value(1))
+			},
+		},
+		{
+			name: "all_nulls_row",
+			setupSQL: `CREATE TABLE test_nulls (col_bool bool, col_int2 int2, col_int4 int4, col_int8 int8, col_float4 float4, col_float8 float8, col_text text);
+					   INSERT INTO test_nulls VALUES (null, null, null, null, null, null, null);`,
+			querySQL:     "SELECT * FROM test_nulls",
+			args:         nil,
+			expectedRows: 1,
+			expectedCols: 7,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				// All columns should have NULL in the single row
+				for i := range int(record.NumCols()) {
+					col := record.Column(i)
+					assert.True(t, col.IsNull(0), "Column %d should be NULL", i)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create isolated test environment with custom tables
+			testPool, testCleanup := createIsolatedTestEnv(t, tt.setupSQL)
+			defer testCleanup()
+
+			// Execute query
+			var record arrow.Record
+			var err error
+			if len(tt.args) > 0 {
+				record, err = testPool.QueryArrow(ctx, tt.querySQL, tt.args...)
+			} else {
+				record, err = testPool.QueryArrow(ctx, tt.querySQL)
+			}
+
+			require.NoError(t, err, "Query failed for test %s", tt.name)
+			require.NotNil(t, record, "Record should not be nil for test %s", tt.name)
+			defer record.Release()
+
+			// Validate basic expectations
+			assert.Equal(t, tt.expectedRows, record.NumRows(), "Row count mismatch for test %s", tt.name)
+			assert.Equal(t, tt.expectedCols, record.NumCols(), "Column count mismatch for test %s", tt.name)
+
+			// Run custom validation
+			if tt.validateFunc != nil {
+				tt.validateFunc(t, record)
+			}
+		})
+	}
 }

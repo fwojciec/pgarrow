@@ -50,7 +50,7 @@ func NewRecordBuilder(schema *arrow.Schema, alloc memory.Allocator) (*RecordBuil
 		builder, err := createBuilderForType(field.Type, alloc)
 		if err != nil {
 			// Clean up any builders created so far
-			for j := 0; j < i; j++ {
+			for j := range i {
 				builders[j].Release()
 			}
 			return nil, fmt.Errorf("failed to create builder for field %s: %w", field.Name, err)
@@ -93,7 +93,7 @@ func (rb *RecordBuilder) Schema() *arrow.Schema {
 }
 
 // AppendRow appends a row of values to the builders with type-safe conversion
-func (rb *RecordBuilder) AppendRow(values []interface{}) error {
+func (rb *RecordBuilder) AppendRow(values []any) error {
 	if len(values) != len(rb.builders) {
 		return fmt.Errorf("expected %d values, got %d", len(rb.builders), len(values))
 	}
@@ -109,7 +109,7 @@ func (rb *RecordBuilder) AppendRow(values []interface{}) error {
 }
 
 // appendValueToBuilder appends a single value to the appropriate builder
-func (rb *RecordBuilder) appendValueToBuilder(builder array.Builder, value interface{}) error {
+func (rb *RecordBuilder) appendValueToBuilder(builder array.Builder, value any) error {
 	if value == nil {
 		builder.AppendNull()
 		return nil
@@ -119,7 +119,7 @@ func (rb *RecordBuilder) appendValueToBuilder(builder array.Builder, value inter
 }
 
 // appendNonNullValue appends a non-nil value to the appropriate builder
-func (rb *RecordBuilder) appendNonNullValue(builder array.Builder, value interface{}) error {
+func (rb *RecordBuilder) appendNonNullValue(builder array.Builder, value any) error {
 	switch b := builder.(type) {
 	case *array.BooleanBuilder:
 		return rb.appendBoolValue(b, value)
@@ -140,7 +140,7 @@ func (rb *RecordBuilder) appendNonNullValue(builder array.Builder, value interfa
 	}
 }
 
-func (rb *RecordBuilder) appendBoolValue(builder *array.BooleanBuilder, value interface{}) error {
+func (rb *RecordBuilder) appendBoolValue(builder *array.BooleanBuilder, value any) error {
 	v, ok := value.(bool)
 	if !ok {
 		return fmt.Errorf("type mismatch: expected bool, got %T", value)
@@ -149,7 +149,7 @@ func (rb *RecordBuilder) appendBoolValue(builder *array.BooleanBuilder, value in
 	return nil
 }
 
-func (rb *RecordBuilder) appendInt16Value(builder *array.Int16Builder, value interface{}) error {
+func (rb *RecordBuilder) appendInt16Value(builder *array.Int16Builder, value any) error {
 	v, ok := value.(int16)
 	if !ok {
 		return fmt.Errorf("type mismatch: expected int16, got %T", value)
@@ -158,7 +158,7 @@ func (rb *RecordBuilder) appendInt16Value(builder *array.Int16Builder, value int
 	return nil
 }
 
-func (rb *RecordBuilder) appendInt32Value(builder *array.Int32Builder, value interface{}) error {
+func (rb *RecordBuilder) appendInt32Value(builder *array.Int32Builder, value any) error {
 	v, ok := value.(int32)
 	if !ok {
 		return fmt.Errorf("type mismatch: expected int32, got %T", value)
@@ -167,7 +167,7 @@ func (rb *RecordBuilder) appendInt32Value(builder *array.Int32Builder, value int
 	return nil
 }
 
-func (rb *RecordBuilder) appendInt64Value(builder *array.Int64Builder, value interface{}) error {
+func (rb *RecordBuilder) appendInt64Value(builder *array.Int64Builder, value any) error {
 	v, ok := value.(int64)
 	if !ok {
 		return fmt.Errorf("type mismatch: expected int64, got %T", value)
@@ -176,7 +176,7 @@ func (rb *RecordBuilder) appendInt64Value(builder *array.Int64Builder, value int
 	return nil
 }
 
-func (rb *RecordBuilder) appendFloat32Value(builder *array.Float32Builder, value interface{}) error {
+func (rb *RecordBuilder) appendFloat32Value(builder *array.Float32Builder, value any) error {
 	v, ok := value.(float32)
 	if !ok {
 		return fmt.Errorf("type mismatch: expected float32, got %T", value)
@@ -185,7 +185,7 @@ func (rb *RecordBuilder) appendFloat32Value(builder *array.Float32Builder, value
 	return nil
 }
 
-func (rb *RecordBuilder) appendFloat64Value(builder *array.Float64Builder, value interface{}) error {
+func (rb *RecordBuilder) appendFloat64Value(builder *array.Float64Builder, value any) error {
 	v, ok := value.(float64)
 	if !ok {
 		return fmt.Errorf("type mismatch: expected float64, got %T", value)
@@ -194,7 +194,7 @@ func (rb *RecordBuilder) appendFloat64Value(builder *array.Float64Builder, value
 	return nil
 }
 
-func (rb *RecordBuilder) appendStringValue(builder *array.StringBuilder, value interface{}) error {
+func (rb *RecordBuilder) appendStringValue(builder *array.StringBuilder, value any) error {
 	v, ok := value.(string)
 	if !ok {
 		return fmt.Errorf("type mismatch: expected string, got %T", value)

@@ -18,7 +18,7 @@ type TypeHandler interface {
 	ArrowType() arrow.DataType
 	// Parse converts binary PostgreSQL data to Go value
 	// Returns nil for NULL values (empty data)
-	Parse(data []byte) (interface{}, error)
+	Parse(data []byte) (any, error)
 }
 
 // TypeRegistry manages type handlers by OID
@@ -83,7 +83,7 @@ func (t *BoolType) ArrowType() arrow.DataType {
 	return arrow.FixedWidthTypes.Boolean
 }
 
-func (t *BoolType) Parse(data []byte) (interface{}, error) {
+func (t *BoolType) Parse(data []byte) (any, error) {
 	if len(data) == 0 {
 		return nil, nil // NULL value
 	}
@@ -110,7 +110,7 @@ func (t *Int2Type) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Int16
 }
 
-func (t *Int2Type) Parse(data []byte) (interface{}, error) {
+func (t *Int2Type) Parse(data []byte) (any, error) {
 	if len(data) == 0 {
 		return nil, nil // NULL value
 	}
@@ -137,7 +137,7 @@ func (t *Int4Type) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Int32
 }
 
-func (t *Int4Type) Parse(data []byte) (interface{}, error) {
+func (t *Int4Type) Parse(data []byte) (any, error) {
 	if len(data) == 0 {
 		return nil, nil // NULL value
 	}
@@ -164,7 +164,7 @@ func (t *Int8Type) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Int64
 }
 
-func (t *Int8Type) Parse(data []byte) (interface{}, error) {
+func (t *Int8Type) Parse(data []byte) (any, error) {
 	if len(data) == 0 {
 		return nil, nil // NULL value
 	}
@@ -191,7 +191,7 @@ func (t *Float4Type) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Float32
 }
 
-func (t *Float4Type) Parse(data []byte) (interface{}, error) {
+func (t *Float4Type) Parse(data []byte) (any, error) {
 	if len(data) == 0 {
 		return nil, nil // NULL value
 	}
@@ -218,7 +218,7 @@ func (t *Float8Type) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Float64
 }
 
-func (t *Float8Type) Parse(data []byte) (interface{}, error) {
+func (t *Float8Type) Parse(data []byte) (any, error) {
 	if len(data) == 0 {
 		return nil, nil // NULL value
 	}
@@ -245,7 +245,7 @@ func (t *TextType) ArrowType() arrow.DataType {
 	return arrow.BinaryTypes.String
 }
 
-func (t *TextType) Parse(data []byte) (interface{}, error) {
+func (t *TextType) Parse(data []byte) (any, error) {
 	if len(data) == 0 {
 		return nil, nil // NULL value
 	}

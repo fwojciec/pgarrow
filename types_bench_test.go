@@ -3,18 +3,26 @@ package pgarrow_test
 import (
 	"testing"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/fwojciec/pgarrow"
 )
+
+// testCustomType is a test type handler for benchmarking
+type testCustomType struct{}
+
+func (t *testCustomType) OID() uint32                    { return 9999 }
+func (t *testCustomType) Name() string                   { return "test" }
+func (t *testCustomType) ArrowType() arrow.DataType      { return arrow.PrimitiveTypes.Int32 }
+func (t *testCustomType) Parse(data []byte) (any, error) { return nil, nil }
 
 // BenchmarkTypeRegistry_GetHandler benchmarks registry lookup performance
 func BenchmarkTypeRegistry_GetHandler(b *testing.B) {
 	registry := pgarrow.NewRegistry()
 	oids := []uint32{16, 21, 23, 20, 700, 701, 25} // All 7 basic types
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		oid := oids[i%len(oids)]
 		handler, err := registry.GetHandler(oid)
 		if err != nil {
@@ -93,7 +101,7 @@ func BenchmarkTypeHandlers_Parse(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				result, err := bm.handler.Parse(bm.data)
 				if err != nil {
 					b.Fatal(err)
@@ -121,10 +129,9 @@ func BenchmarkTypeRegistry_Integration(b *testing.B) {
 		{25, []byte("Hello World")},                                   // text
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		tc := testCases[i%len(testCases)]
 
 		handler, err := registry.GetHandler(tc.oid)
@@ -157,10 +164,9 @@ func BenchmarkTypeRegistry_AllTypes(b *testing.B) {
 		{25, []byte("Hello World")},                                   // text
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Parse all 7 types in each iteration
 		for _, tc := range allTypes {
 			handler, err := registry.GetHandler(tc.oid)
@@ -179,10 +185,10 @@ func BenchmarkTypeRegistry_AllTypes(b *testing.B) {
 
 // BenchmarkTypeRegistry_Register benchmarks registry registration performance
 func BenchmarkTypeRegistry_Register(b *testing.B) {
-	b.ResetTimer()
+
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		registry := pgarrow.NewRegistry()
 
 		// Register a custom type handler
