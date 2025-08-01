@@ -81,9 +81,11 @@ func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql 
 	copySQL := fmt.Sprintf("COPY (%s) TO STDOUT (FORMAT BINARY)", sql)
 
 	// Set up pipe for COPY data
+	// io.Pipe is used to stream data from the COPY TO STDOUT operation (executed in a goroutine)
+	// to the parseDataToRecord function. This allows concurrent writing and reading of the data.
 	pipeReader, pipeWriter := io.Pipe()
 	copyErrChan := make(chan error, 1)
-	
+
 	go func() {
 		defer pipeWriter.Close()
 		_, err := conn.Conn().PgConn().CopyTo(ctx, pipeWriter, copySQL)
@@ -97,10 +99,16 @@ func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql 
 		return nil, err
 	}
 
-	// Check COPY operation result
-	if copyErr := <-copyErrChan; copyErr != nil {
+	// Check COPY operation result with context handling
+	select {
+	case copyErr := <-copyErrChan:
+		if copyErr != nil {
+			record.Release()
+			return nil, fmt.Errorf("COPY operation failed: %w", copyErr)
+		}
+	case <-ctx.Done():
 		record.Release()
-		return nil, fmt.Errorf("COPY operation failed: %w", copyErr)
+		return nil, fmt.Errorf("context cancelled during COPY operation: %w", ctx.Err())
 	}
 
 	return record, nil
