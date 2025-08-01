@@ -55,6 +55,22 @@ These examples work with any PostgreSQL database and don't require specific tabl
 - `VALUES` clauses to create inline data
 - PostgreSQL type casting (e.g., `123::int2`)
 
+## ⚠️ Important Limitation
+
+**Parameterized queries are NOT supported** due to PostgreSQL's COPY TO BINARY protocol limitations. 
+
+❌ **Don't do this:**
+```go
+// This will fail - parameterized queries not supported
+record, err := pool.QueryArrow(ctx, "SELECT * FROM my_table WHERE id = $1", 123)
+```
+
+✅ **Do this instead:**
+```go  
+// Use literal values in your SQL
+record, err := pool.QueryArrow(ctx, "SELECT * FROM (VALUES (1, 'Alice'), (2, 'Bob')) AS my_table(id, name) WHERE id = 123")
+```
+
 ### Example DATABASE_URL formats:
 
 **Local PostgreSQL:**
