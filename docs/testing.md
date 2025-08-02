@@ -29,7 +29,6 @@ tests := []struct {
     name         string
     setupSQL     string           // CREATE TABLE and INSERT statements
     querySQL     string           // SELECT query to test
-    args         []interface{}    // Query parameters (not used due to COPY limitations)
     expectedRows int64           
     expectedCols int64           
     validateFunc func(t *testing.T, record arrow.Record) // Custom validation

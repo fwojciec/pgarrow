@@ -1086,7 +1086,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 		name         string
 		setupSQL     string
 		querySQL     string
-		args         []any
 		expectedRows int64
 		expectedCols int64
 		validateFunc func(t *testing.T, record arrow.Record)
@@ -1095,7 +1094,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "bool_all_values",
 			setupSQL:     `CREATE TABLE test_bool (val bool); INSERT INTO test_bool VALUES (true), (false), (null);`,
 			querySQL:     "SELECT * FROM test_bool ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 3,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1112,7 +1110,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "int2_edge_cases",
 			setupSQL:     `CREATE TABLE test_int2 (val int2); INSERT INTO test_int2 VALUES (32767), (-32768), (0), (null);`,
 			querySQL:     "SELECT * FROM test_int2 ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1130,7 +1127,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "int4_edge_cases",
 			setupSQL:     `CREATE TABLE test_int4 (val int4); INSERT INTO test_int4 VALUES (2147483647), (-2147483648), (0), (null);`,
 			querySQL:     "SELECT * FROM test_int4 ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1148,7 +1144,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "int8_edge_cases",
 			setupSQL:     `CREATE TABLE test_int8 (val int8); INSERT INTO test_int8 VALUES (9223372036854775807), (-9223372036854775808), (0), (null);`,
 			querySQL:     "SELECT * FROM test_int8 ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1166,7 +1161,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "float4_precision",
 			setupSQL:     `CREATE TABLE test_float4 (val float4); INSERT INTO test_float4 VALUES (3.14159), (-3.14159), (0.0), ('Infinity'::float4), ('-Infinity'::float4), ('NaN'::float4), (null);`,
 			querySQL:     "SELECT * FROM test_float4 ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 7,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1208,7 +1202,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "float8_precision",
 			setupSQL:     `CREATE TABLE test_float8 (val float8); INSERT INTO test_float8 VALUES (2.718281828459045), (-2.718281828459045), (0.0), ('Infinity'::float8), ('-Infinity'::float8), ('NaN'::float8), (null);`,
 			querySQL:     "SELECT * FROM test_float8 ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 7,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1257,7 +1250,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "text_encoding_cases",
 			setupSQL:     `CREATE TABLE test_text (val text); INSERT INTO test_text VALUES ('Hello World'), (''), ('Unicode: 🚀 αβγ 中文'), ('Special' || chr(10) || 'Chars' || chr(9) || '"'), (null);`,
 			querySQL:     "SELECT * FROM test_text ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 5,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1284,7 +1276,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			setupSQL: `CREATE TABLE test_mixed (id int4, name text, score float8, active bool); 
 					   INSERT INTO test_mixed VALUES (1, 'Alice', 95.5, true), (2, 'Bob', 87.2, false), (3, 'Charlie', 92.1, true);`,
 			querySQL:     "SELECT * FROM test_mixed WHERE score > 90.0 AND active = true ORDER BY score DESC",
-			args:         nil,
 			expectedRows: 2,
 			expectedCols: 4,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1324,7 +1315,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			setupSQL: `CREATE TABLE test_nulls (col_bool bool, col_int2 int2, col_int4 int4, col_int8 int8, col_float4 float4, col_float8 float8, col_text text);
 					   INSERT INTO test_nulls VALUES (null, null, null, null, null, null, null);`,
 			querySQL:     "SELECT * FROM test_nulls",
-			args:         nil,
 			expectedRows: 1,
 			expectedCols: 7,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1340,7 +1330,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "varchar_all_values",
 			setupSQL:     `CREATE TABLE test_varchar (val varchar(50)); INSERT INTO test_varchar VALUES ('Hello VARCHAR'), (''), ('Unicode: 🚀 αβγ 中文'), (null);`,
 			querySQL:     "SELECT * FROM test_varchar ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1365,7 +1354,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "bpchar_all_values",
 			setupSQL:     `CREATE TABLE test_bpchar (val char(20)); INSERT INTO test_bpchar VALUES ('Hello BPCHAR'), (''), ('Unicode: 🚀'), (null);`,
 			querySQL:     "SELECT * FROM test_bpchar ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1397,7 +1385,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "name_all_values",
 			setupSQL:     `CREATE TABLE test_name (val name); INSERT INTO test_name VALUES ('table_name'), ('column_name'), (''), (null);`,
 			querySQL:     "SELECT * FROM test_name ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1422,7 +1409,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "char_all_values",
 			setupSQL:     `CREATE TABLE test_char (val "char"); INSERT INTO test_char VALUES ('A'), ('Z'), ('1'), (null);`,
 			querySQL:     "SELECT * FROM test_char ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1449,7 +1435,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "bytea_basic_values",
 			setupSQL:     `CREATE TABLE test_bytea (val bytea); INSERT INTO test_bytea VALUES (E'\\x48656c6c6f20576f726c64'), (E'\\x'), (E'\\x00FF00FF'), (null);`,
 			querySQL:     "SELECT * FROM test_bytea ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1488,7 +1473,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "bytea_special_bytes",
 			setupSQL:     `CREATE TABLE test_bytea_special (val bytea); INSERT INTO test_bytea_special VALUES (E'\\x0001020304050607080910111213141516171819'), (E'\\xFFFFFFFF'), (E'\\x000000'), (null);`,
 			querySQL:     "SELECT * FROM test_bytea_special ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1528,7 +1512,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "date_edge_cases",
 			setupSQL:     `CREATE TABLE test_date (val date); INSERT INTO test_date VALUES ('2000-01-01'::date), ('1970-01-01'::date), ('2024-12-31'::date), ('1999-12-31'::date), (null);`,
 			querySQL:     "SELECT * FROM test_date ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 5,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1567,7 +1550,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "time_edge_cases",
 			setupSQL:     `CREATE TABLE test_time (val time); INSERT INTO test_time VALUES ('00:00:00'::time), ('23:59:59.999999'::time), ('12:30:45.123456'::time), ('06:15:30'::time), (null);`,
 			querySQL:     "SELECT * FROM test_time ORDER BY val NULLS LAST",
-			args:         nil,
 			expectedRows: 5,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1614,7 +1596,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 					   (3, '2024-12-31'::date, '23:59:59.999999'::time, 'year end'),
 					   (4, null, null, 'nulls');`,
 			querySQL:     "SELECT * FROM test_mixed_temporal ORDER BY id",
-			args:         nil,
 			expectedRows: 4,
 			expectedCols: 4,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1674,7 +1655,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 					   (2, 'second', E'\\x', false),
 					   (3, 'third', null, true);`,
 			querySQL:     "SELECT * FROM test_mixed_bytea ORDER BY id",
-			args:         nil,
 			expectedRows: 3,
 			expectedCols: 4,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1730,7 +1710,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 					   (2, '', '', '', '', '0'),
 					   (3, null, null, null, null, null);`,
 			querySQL:     "SELECT * FROM test_mixed_strings ORDER BY id",
-			args:         nil,
 			expectedRows: 3,
 			expectedCols: 6,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1796,7 +1775,6 @@ func TestQueryArrowDataTypes(t *testing.T) {
 					   ('1950-01-01'::date), ('1960-01-01'::date), ('1970-01-01'::date), 
 					   ('1980-01-01'::date), ('1990-01-01'::date), ('1999-12-31'::date);`,
 			querySQL:     "SELECT * FROM test_date_signed ORDER BY val",
-			args:         nil,
 			expectedRows: 6,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -1842,12 +1820,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 
 			// Execute query
 			var reader array.RecordReader
-			var err error
-			if len(tt.args) > 0 {
-				reader, err = testPool.QueryArrow(ctx, tt.querySQL, tt.args...)
-			} else {
-				reader, err = testPool.QueryArrow(ctx, tt.querySQL)
-			}
+			reader, err := testPool.QueryArrow(ctx, tt.querySQL)
 
 			require.NoError(t, err, "Query failed for test %s", tt.name)
 			require.NotNil(t, reader, "Reader should not be nil for test %s", tt.name)
