@@ -1178,7 +1178,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				hasNegInf := false
 				regularValues := []float32{}
 
-				for i := range int(record.NumRows()) - 1 { // -1 to skip NULL
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !float4Col.IsNull(i) {
 						val := float4Col.Value(i)
 						if val != val { // NaN check
@@ -1220,7 +1220,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				hasNegInf := false
 				regularValues := []float64{}
 
-				for i := range int(record.NumRows()) - 1 {
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !float8Col.IsNull(i) {
 						val := float8Col.Value(i)
 						if val != val { // NaN check
@@ -1264,7 +1264,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				require.True(t, ok)
 
 				values := make([]string, 0, record.NumRows()-1) // -1 for NULL
-				for i := range int(record.NumRows()) - 1 {
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !textCol.IsNull(i) {
 						values = append(values, textCol.Value(i))
 					}
@@ -1331,6 +1331,189 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				for i := range int(record.NumCols()) {
 					col := record.Column(i)
 					assert.True(t, col.IsNull(0), "Column %d should be NULL", i)
+				}
+			},
+		},
+		{
+			name:         "varchar_all_values",
+			setupSQL:     `CREATE TABLE test_varchar (val varchar(50)); INSERT INTO test_varchar VALUES ('Hello VARCHAR'), (''), ('Unicode: 🚀 αβγ 中文'), (null);`,
+			querySQL:     "SELECT * FROM test_varchar ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				varcharCol, ok := record.Column(0).(*array.String)
+				require.True(t, ok)
+
+				values := make([]string, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !varcharCol.IsNull(i) {
+						values = append(values, varcharCol.Value(i))
+					}
+				}
+
+				assert.Contains(t, values, "")
+				assert.Contains(t, values, "Hello VARCHAR")
+				assert.Contains(t, values, "Unicode: 🚀 αβγ 中文")
+				assert.True(t, varcharCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name:         "bpchar_all_values",
+			setupSQL:     `CREATE TABLE test_bpchar (val char(20)); INSERT INTO test_bpchar VALUES ('Hello BPCHAR'), (''), ('Unicode: 🚀'), (null);`,
+			querySQL:     "SELECT * FROM test_bpchar ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				bpcharCol, ok := record.Column(0).(*array.String)
+				require.True(t, ok)
+
+				values := make([]string, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !bpcharCol.IsNull(i) {
+						val := bpcharCol.Value(i)
+						values = append(values, val)
+					}
+				}
+
+				// Note: BPCHAR pads with spaces, so we check for trimmed values
+				found := false
+				for _, val := range values {
+					if val == "Hello BPCHAR" || (len(val) >= len("Hello BPCHAR") && val[:len("Hello BPCHAR")] == "Hello BPCHAR") {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Should find 'Hello BPCHAR' value")
+				assert.True(t, bpcharCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name:         "name_all_values",
+			setupSQL:     `CREATE TABLE test_name (val name); INSERT INTO test_name VALUES ('table_name'), ('column_name'), (''), (null);`,
+			querySQL:     "SELECT * FROM test_name ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				nameCol, ok := record.Column(0).(*array.String)
+				require.True(t, ok)
+
+				values := make([]string, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !nameCol.IsNull(i) {
+						values = append(values, nameCol.Value(i))
+					}
+				}
+
+				assert.Contains(t, values, "")
+				assert.Contains(t, values, "table_name")
+				assert.Contains(t, values, "column_name")
+				assert.True(t, nameCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name:         "char_all_values",
+			setupSQL:     `CREATE TABLE test_char (val "char"); INSERT INTO test_char VALUES ('A'), ('Z'), ('1'), (null);`,
+			querySQL:     "SELECT * FROM test_char ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				charCol, ok := record.Column(0).(*array.String)
+				require.True(t, ok)
+
+				values := make([]string, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !charCol.IsNull(i) {
+						values = append(values, charCol.Value(i))
+					}
+				}
+
+				// "char" type stores single bytes, so check for presence of expected values
+				assert.Len(t, values, 3, "Should have 3 non-NULL values")
+				assert.Contains(t, values, "A")
+				assert.Contains(t, values, "Z")
+				assert.Contains(t, values, "1")
+				assert.True(t, charCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name: "mixed_string_types",
+			setupSQL: `CREATE TABLE test_mixed_strings (
+						id int4, 
+						text_col text, 
+						varchar_col varchar(50), 
+						bpchar_col char(10), 
+						name_col name, 
+						char_col "char"
+					   ); 
+					   INSERT INTO test_mixed_strings VALUES 
+					   (1, 'text_value', 'varchar_value', 'bpchar', 'name_val', 'A'),
+					   (2, '', '', '', '', '0'),
+					   (3, null, null, null, null, null);`,
+			querySQL:     "SELECT * FROM test_mixed_strings ORDER BY id",
+			args:         nil,
+			expectedRows: 3,
+			expectedCols: 6,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				// Verify schema
+				schema := record.Schema()
+				assert.Equal(t, "id", schema.Field(0).Name)
+				assert.Equal(t, "text_col", schema.Field(1).Name)
+				assert.Equal(t, "varchar_col", schema.Field(2).Name)
+				assert.Equal(t, "bpchar_col", schema.Field(3).Name)
+				assert.Equal(t, "name_col", schema.Field(4).Name)
+				assert.Equal(t, "char_col", schema.Field(5).Name)
+
+				// Extract columns
+				idCol, ok := record.Column(0).(*array.Int32)
+				require.True(t, ok)
+				textCol, ok := record.Column(1).(*array.String)
+				require.True(t, ok)
+				varcharCol, ok := record.Column(2).(*array.String)
+				require.True(t, ok)
+				bpcharCol, ok := record.Column(3).(*array.String)
+				require.True(t, ok)
+				nameCol, ok := record.Column(4).(*array.String)
+				require.True(t, ok)
+				charCol, ok := record.Column(5).(*array.String)
+				require.True(t, ok)
+
+				// Verify data for each row
+				for i := range int(record.NumRows()) {
+					switch idCol.Value(i) {
+					case 1: // First row - all have values
+						assert.Equal(t, "text_value", textCol.Value(i))
+						assert.Equal(t, "varchar_value", varcharCol.Value(i))
+						// bpchar may be padded, so check it starts with expected value
+						bpcharVal := bpcharCol.Value(i)
+						assert.True(t, len(bpcharVal) >= 6 && bpcharVal[:6] == "bpchar", "bpchar should start with 'bpchar'")
+						assert.Equal(t, "name_val", nameCol.Value(i))
+						// char_col should contain 'A'
+						assert.Equal(t, "A", charCol.Value(i))
+					case 2: // Second row - all empty strings
+						assert.Empty(t, textCol.Value(i))
+						assert.Empty(t, varcharCol.Value(i))
+						// bpchar empty might be spaces, just check it's not null
+						assert.False(t, bpcharCol.IsNull(i))
+						assert.Empty(t, nameCol.Value(i))
+						// char_col with '0' - just check it's not null
+						assert.False(t, charCol.IsNull(i))
+						assert.Equal(t, "0", charCol.Value(i))
+					case 3: // Third row - all NULLs
+						assert.True(t, textCol.IsNull(i))
+						assert.True(t, varcharCol.IsNull(i))
+						assert.True(t, bpcharCol.IsNull(i))
+						assert.True(t, nameCol.IsNull(i))
+						assert.True(t, charCol.IsNull(i))
+					}
 				}
 			},
 		},

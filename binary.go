@@ -12,13 +12,17 @@ const (
 	defaultBufferCapacity = 256
 
 	// PostgreSQL type OIDs for Phase 1 support
-	TypeOIDBool   = 16
-	TypeOIDInt8   = 20
-	TypeOIDInt2   = 21
-	TypeOIDInt4   = 23
-	TypeOIDText   = 25
-	TypeOIDFloat4 = 700
-	TypeOIDFloat8 = 701
+	TypeOIDBool    = 16
+	TypeOIDName    = 19
+	TypeOIDInt8    = 20
+	TypeOIDInt2    = 21
+	TypeOIDInt4    = 23
+	TypeOIDText    = 25
+	TypeOIDFloat4  = 700
+	TypeOIDFloat8  = 701
+	TypeOIDBpchar  = 1042
+	TypeOIDVarchar = 1043
+	TypeOIDChar    = 18
 )
 
 // Parser parses PostgreSQL COPY binary format data
@@ -208,7 +212,7 @@ func (p *Parser) parseFieldData(data []byte, oid uint32) (any, error) {
 		}
 		return math.Float64frombits(binary.BigEndian.Uint64(data)), nil
 
-	case TypeOIDText:
+	case TypeOIDText, TypeOIDVarchar, TypeOIDBpchar, TypeOIDName, TypeOIDChar:
 		// Empty data represents an empty string, not NULL
 		// NULL values are handled at the field level (length == -1)
 		return string(data), nil
