@@ -171,7 +171,7 @@ func setupTestDBWithAllocator(t *testing.T, alloc memory.Allocator) (*pgarrow.Po
 	connStr := connConfig.ConnString()
 
 	// Create pgarrow Pool with the schema-specific connection and custom allocator
-	pool, err := pgarrow.NewPoolWithAllocator(context.Background(), connStr, alloc)
+	pool, err := pgarrow.NewPool(context.Background(), connStr, pgarrow.WithAllocator(alloc))
 	require.NoError(t, err, "should create pgarrow pool")
 
 	// Create test tables in the schema
