@@ -141,6 +141,8 @@ Run benchmarks:
 go test -bench=. -benchmem ./...
 ```
 
+For detailed performance analysis and baseline metrics, see [`docs/benchmarks.md`](docs/benchmarks.md).
+
 ## Architecture
 
 PGArrow uses PostgreSQL's `COPY TO BINARY` format with streaming RecordReader architecture for optimal data transfer and constant memory usage:

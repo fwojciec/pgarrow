@@ -85,6 +85,8 @@ func createBuilderForType(dataType arrow.DataType, alloc memory.Allocator) (arra
 		return array.NewFloat64Builder(alloc), nil
 	case arrow.STRING:
 		return array.NewStringBuilder(alloc), nil
+	case arrow.BINARY:
+		return array.NewBinaryBuilder(alloc, arrow.BinaryTypes.Binary), nil
 	default:
 		return nil, fmt.Errorf("unsupported Arrow type: %s", dataType)
 	}
@@ -138,6 +140,8 @@ func (rb *RecordBuilder) appendNonNullValue(builder array.Builder, value any) er
 		return rb.appendFloat64Value(b, value)
 	case *array.StringBuilder:
 		return rb.appendStringValue(b, value)
+	case *array.BinaryBuilder:
+		return rb.appendBinaryValue(b, value)
 	default:
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
@@ -201,6 +205,15 @@ func (rb *RecordBuilder) appendStringValue(builder *array.StringBuilder, value a
 	v, ok := value.(string)
 	if !ok {
 		return fmt.Errorf("type mismatch: expected string, got %T", value)
+	}
+	builder.Append(v)
+	return nil
+}
+
+func (rb *RecordBuilder) appendBinaryValue(builder *array.BinaryBuilder, value any) error {
+	v, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("type mismatch: expected []byte, got %T", value)
 	}
 	builder.Append(v)
 	return nil
@@ -328,6 +341,8 @@ func (r *PGArrowRecordReader) Next() bool {
 // parseRowsIntoBatch parses rows from the parser into the record builder
 func (r *PGArrowRecordReader) parseRowsIntoBatch(recordBuilder *RecordBuilder) int {
 	rowCount := 0
+	registry := NewRegistry() // Create type registry for conversions
+
 	for rowCount < r.batchSize {
 		fields, err := r.parser.ParseTuple()
 		if err == io.EOF {
@@ -338,9 +353,10 @@ func (r *PGArrowRecordReader) parseRowsIntoBatch(recordBuilder *RecordBuilder) i
 			return rowCount
 		}
 
-		values := make([]any, len(fields))
-		for i, field := range fields {
-			values[i] = field.Value
+		values, err := r.convertFieldsToValues(fields, registry)
+		if err != nil {
+			r.err = err
+			return rowCount
 		}
 
 		if err := recordBuilder.AppendRow(values); err != nil {
@@ -351,6 +367,42 @@ func (r *PGArrowRecordReader) parseRowsIntoBatch(recordBuilder *RecordBuilder) i
 		rowCount++
 	}
 	return rowCount
+}
+
+// convertFieldsToValues converts parsed fields to typed values using TypeHandlers
+func (r *PGArrowRecordReader) convertFieldsToValues(fields []Field, registry *TypeRegistry) ([]any, error) {
+	values := make([]any, len(fields))
+	for i, field := range fields {
+		if field.Value == nil {
+			values[i] = nil
+		} else {
+			// Get the appropriate type handler and convert
+			handler, err := registry.GetHandler(r.fieldOIDs[i])
+			if err != nil {
+				return nil, fmt.Errorf("failed to get handler for OID %d: %w", r.fieldOIDs[i], err)
+			}
+
+			// Handle both []byte (for primitives/binary) and string (for text types)
+			var convertedValue any
+			switch fieldData := field.Value.(type) {
+			case []byte:
+				// Raw bytes from parser - let TypeHandler convert
+				convertedValue, err = handler.Parse(fieldData)
+			case string:
+				// String from parser - convert back to []byte for TypeHandler
+				convertedValue, err = handler.Parse([]byte(fieldData))
+			default:
+				return nil, fmt.Errorf("unexpected field data type from parser: %T", field.Value)
+			}
+
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse field %d: %w", i, err)
+			}
+
+			values[i] = convertedValue
+		}
+	}
+	return values, nil
 }
 
 // Record returns the current record batch

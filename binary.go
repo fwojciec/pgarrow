@@ -4,15 +4,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 )
 
 const (
-	// defaultBufferCapacity is the initial capacity for reusable field data buffers
-	defaultBufferCapacity = 256
-
 	// PostgreSQL type OIDs for Phase 1 support
 	TypeOIDBool    = 16
+	TypeOIDBytea   = 17
 	TypeOIDName    = 19
 	TypeOIDInt8    = 20
 	TypeOIDInt2    = 21
@@ -27,10 +24,10 @@ const (
 
 // Parser parses PostgreSQL COPY binary format data
 type Parser struct {
-	reader    io.Reader
-	buf       []byte   // Reusable buffer for field data
-	fields    []Field  // Reusable slice for fields
-	fieldOIDs []uint32 // Optional: PostgreSQL type OIDs for each field
+	reader       io.Reader
+	fieldBuffers [][]byte // One buffer per field to avoid copying binary data
+	fields       []Field  // Reusable slice for fields
+	fieldOIDs    []uint32 // Optional: PostgreSQL type OIDs for each field
 }
 
 // Field represents a parsed field from binary data
@@ -42,9 +39,9 @@ type Field struct {
 // fieldOIDs must contain the PostgreSQL type OID for each field in order
 func NewParser(reader io.Reader, fieldOIDs []uint32) *Parser {
 	return &Parser{
-		reader:    reader,
-		buf:       make([]byte, 0, defaultBufferCapacity),
-		fieldOIDs: fieldOIDs,
+		reader:       reader,
+		fieldBuffers: make([][]byte, 0, len(fieldOIDs)), // Pre-allocate for expected field count
+		fieldOIDs:    fieldOIDs,
 	}
 }
 
@@ -148,14 +145,27 @@ func (p *Parser) ParseField(fieldIndex int) (Field, error) {
 		return Field{}, fmt.Errorf("invalid field length: %d", length)
 	}
 
-	// Read field data using reusable buffer
-	if cap(p.buf) < int(length) {
-		p.buf = make([]byte, length)
-	} else {
-		p.buf = p.buf[:length]
+	// Ensure we have enough field buffers
+	if len(p.fieldBuffers) <= fieldIndex {
+		// Expand fieldBuffers slice to accommodate this field
+		newBuffers := make([][]byte, fieldIndex+1)
+		copy(newBuffers, p.fieldBuffers)
+		p.fieldBuffers = newBuffers
 	}
 
-	if _, err := io.ReadFull(p.reader, p.buf); err != nil {
+	// Read field data using field-specific buffer (avoids copying for binary data)
+	if cap(p.fieldBuffers[fieldIndex]) < int(length) {
+		p.fieldBuffers[fieldIndex] = make([]byte, length)
+	} else {
+		p.fieldBuffers[fieldIndex] = p.fieldBuffers[fieldIndex][:length]
+	}
+
+	// Ensure we have a valid empty slice for zero-length data (not nil)
+	if p.fieldBuffers[fieldIndex] == nil && length == 0 {
+		p.fieldBuffers[fieldIndex] = make([]byte, 0)
+	}
+
+	if _, err := io.ReadFull(p.reader, p.fieldBuffers[fieldIndex]); err != nil {
 		return Field{}, fmt.Errorf("unexpected EOF reading field data: %w", err)
 	}
 
@@ -165,59 +175,25 @@ func (p *Parser) ParseField(fieldIndex int) (Field, error) {
 	}
 
 	fieldOID := p.fieldOIDs[fieldIndex]
-	value, err := p.parseFieldData(p.buf, fieldOID)
-	if err != nil {
-		return Field{}, fmt.Errorf("failed to parse field data for OID %d: %w", fieldOID, err)
-	}
+	value := p.parseFieldData(p.fieldBuffers[fieldIndex], fieldOID)
 
 	return Field{Value: value}, nil
 }
 
-// parseFieldData interprets field data using explicit PostgreSQL type information
-func (p *Parser) parseFieldData(data []byte, oid uint32) (any, error) {
+// parseFieldData does minimal necessary conversions - most work is handled by TypeHandlers
+func (p *Parser) parseFieldData(data []byte, oid uint32) any {
 	switch oid {
-	case TypeOIDBool:
-		if len(data) != 1 {
-			return nil, fmt.Errorf("invalid data length for bool: expected 1, got %d", len(data))
-		}
-		return data[0] != 0, nil
-
-	case TypeOIDInt2:
-		if len(data) != 2 {
-			return nil, fmt.Errorf("invalid data length for int2: expected 2, got %d", len(data))
-		}
-		return int16(binary.BigEndian.Uint16(data)), nil
-
-	case TypeOIDInt4:
-		if len(data) != 4 {
-			return nil, fmt.Errorf("invalid data length for int4: expected 4, got %d", len(data))
-		}
-		return int32(binary.BigEndian.Uint32(data)), nil
-
-	case TypeOIDInt8:
-		if len(data) != 8 {
-			return nil, fmt.Errorf("invalid data length for int8: expected 8, got %d", len(data))
-		}
-		return int64(binary.BigEndian.Uint64(data)), nil
-
-	case TypeOIDFloat4:
-		if len(data) != 4 {
-			return nil, fmt.Errorf("invalid data length for float4: expected 4, got %d", len(data))
-		}
-		return math.Float32frombits(binary.BigEndian.Uint32(data)), nil
-
-	case TypeOIDFloat8:
-		if len(data) != 8 {
-			return nil, fmt.Errorf("invalid data length for float8: expected 8, got %d", len(data))
-		}
-		return math.Float64frombits(binary.BigEndian.Uint64(data)), nil
+	case TypeOIDBytea:
+		// Return raw bytes for binary data - no conversion needed
+		return data
 
 	case TypeOIDText, TypeOIDVarchar, TypeOIDBpchar, TypeOIDName, TypeOIDChar:
-		// Empty data represents an empty string, not NULL
-		// NULL values are handled at the field level (length == -1)
-		return string(data), nil
+		// Convert to string for text types (string([]byte) copies data)
+		return string(data)
 
 	default:
-		return nil, fmt.Errorf("unsupported PostgreSQL type OID: %d", oid)
+		// For primitive types (bool, int, float), return raw bytes
+		// TypeHandler will do the conversion
+		return data
 	}
 }

@@ -34,6 +34,7 @@ func NewRegistry() *TypeRegistry {
 
 	// Register all basic types
 	registry.register(&BoolType{})
+	registry.register(&ByteaType{})
 	registry.register(&Int2Type{})
 	registry.register(&Int4Type{})
 	registry.register(&Int8Type{})
@@ -250,10 +251,10 @@ func (t *TextType) ArrowType() arrow.DataType {
 }
 
 func (t *TextType) Parse(data []byte) (any, error) {
-	if len(data) == 0 {
+	if data == nil {
 		return nil, nil // NULL value
 	}
-	return string(data), nil
+	return string(data), nil // Empty string (len(data) == 0) is valid
 }
 
 // VarcharType handles PostgreSQL varchar type (OID 1043)
@@ -272,10 +273,10 @@ func (t *VarcharType) ArrowType() arrow.DataType {
 }
 
 func (t *VarcharType) Parse(data []byte) (any, error) {
-	if len(data) == 0 {
+	if data == nil {
 		return nil, nil // NULL value
 	}
-	return string(data), nil
+	return string(data), nil // Empty string (len(data) == 0) is valid
 }
 
 // BpcharType handles PostgreSQL bpchar type (OID 1042)
@@ -294,10 +295,10 @@ func (t *BpcharType) ArrowType() arrow.DataType {
 }
 
 func (t *BpcharType) Parse(data []byte) (any, error) {
-	if len(data) == 0 {
+	if data == nil {
 		return nil, nil // NULL value
 	}
-	return string(data), nil
+	return string(data), nil // Empty string (len(data) == 0) is valid
 }
 
 // NameType handles PostgreSQL name type (OID 19)
@@ -316,10 +317,10 @@ func (t *NameType) ArrowType() arrow.DataType {
 }
 
 func (t *NameType) Parse(data []byte) (any, error) {
-	if len(data) == 0 {
+	if data == nil {
 		return nil, nil // NULL value
 	}
-	return string(data), nil
+	return string(data), nil // Empty string (len(data) == 0) is valid
 }
 
 // CharType handles PostgreSQL char type (OID 18)
@@ -338,8 +339,32 @@ func (t *CharType) ArrowType() arrow.DataType {
 }
 
 func (t *CharType) Parse(data []byte) (any, error) {
-	if len(data) == 0 {
+	if data == nil {
 		return nil, nil // NULL value
 	}
-	return string(data), nil
+	return string(data), nil // Empty string (len(data) == 0) is valid
+}
+
+// ByteaType handles PostgreSQL bytea type (OID 17)
+type ByteaType struct{}
+
+func (t *ByteaType) OID() uint32 {
+	return TypeOIDBytea
+}
+
+func (t *ByteaType) Name() string {
+	return "bytea"
+}
+
+func (t *ByteaType) ArrowType() arrow.DataType {
+	return arrow.BinaryTypes.Binary
+}
+
+func (t *ByteaType) Parse(data []byte) (any, error) {
+	if data == nil {
+		return nil, nil // NULL value
+	}
+	// Empty bytea (len(data) == 0) is valid - return the empty slice
+	// Data is already safely copied in parseFieldData(), no additional copying needed
+	return data, nil
 }
