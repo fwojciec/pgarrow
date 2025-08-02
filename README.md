@@ -138,14 +138,14 @@ While developed with rigorous quality processes, this software should be conside
 
 **✅ Ready for experimentation:**
 - Core functionality complete
-- 11 data types supported
+- 17 data types supported
 - Comprehensive test suite
 - Performance benchmarks
 
 **⚠️ Known limits:**
 - No parameterized queries (COPY protocol limitation)
 - Alpha quality - production validation needed
-- Limited to 11 PostgreSQL types (more coming)
+- Limited to 17 PostgreSQL types currently
 
 ---
 
