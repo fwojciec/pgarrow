@@ -748,6 +748,160 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:         "interval_basic_values",
+			setupSQL:     `CREATE TABLE test_interval (val interval); INSERT INTO test_interval VALUES ('1 year 2 months 3 days 4 hours 5 minutes 6.789 seconds'::interval), ('0'::interval), ('-1 year -2 months -3 days -4 hours -5 minutes -6.789 seconds'::interval), (null);`,
+			querySQL:     "SELECT * FROM test_interval ORDER BY val NULLS LAST",
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				intervalCol, ok := record.Column(0).(*array.MonthDayNanoInterval)
+				require.True(t, ok)
+
+				values := make([]arrow.MonthDayNanoInterval, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !intervalCol.IsNull(i) {
+						values = append(values, intervalCol.Value(i))
+					}
+				}
+
+				// Check for expected patterns
+				foundZero := false
+				foundPositive := false
+				foundNegative := false
+				for _, val := range values {
+					if val.Months == 0 && val.Days == 0 && val.Nanoseconds == 0 {
+						foundZero = true
+					} else if val.Months > 0 && val.Days > 0 && val.Nanoseconds > 0 {
+						foundPositive = true
+						// 1 year 2 months = 14 months, 3 days, 4:05:06.789 = 14706789000000 nanoseconds
+						assert.Equal(t, int32(14), val.Months) // 1 year + 2 months
+						assert.Equal(t, int32(3), val.Days)
+						assert.Equal(t, int64(14706789000000), val.Nanoseconds) // 4*3600 + 5*60 + 6.789 seconds in nanoseconds
+					} else if val.Months < 0 && val.Days < 0 && val.Nanoseconds < 0 {
+						foundNegative = true
+						assert.Equal(t, int32(-14), val.Months) // -1 year -2 months
+						assert.Equal(t, int32(-3), val.Days)
+						assert.Equal(t, int64(-14706789000000), val.Nanoseconds)
+					}
+				}
+
+				assert.True(t, foundZero, "Should find zero interval")
+				assert.True(t, foundPositive, "Should find positive interval")
+				assert.True(t, foundNegative, "Should find negative interval")
+				assert.True(t, intervalCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name:         "interval_edge_cases",
+			setupSQL:     `CREATE TABLE test_interval_edge (val interval); INSERT INTO test_interval_edge VALUES ('999 years'::interval), ('999999 days'::interval), ('999999999 microseconds'::interval), ('0 seconds'::interval), (null);`,
+			querySQL:     "SELECT * FROM test_interval_edge ORDER BY val NULLS LAST",
+			expectedRows: 5,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				intervalCol, ok := record.Column(0).(*array.MonthDayNanoInterval)
+				require.True(t, ok)
+
+				values := make([]arrow.MonthDayNanoInterval, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !intervalCol.IsNull(i) {
+						values = append(values, intervalCol.Value(i))
+					}
+				}
+
+				// Check for expected patterns
+				foundLargeMonths := false
+				foundLargeDays := false
+				foundLargeNanos := false
+				foundZero := false
+				for _, val := range values {
+					if val.Months >= 11988 { // 999 years ≈ 11988 months
+						foundLargeMonths = true
+					} else if val.Days >= 999999 {
+						foundLargeDays = true
+					} else if val.Nanoseconds >= 999999000 { // 999999 microseconds = 999999000 nanoseconds
+						foundLargeNanos = true
+					} else if val.Months == 0 && val.Days == 0 && val.Nanoseconds == 0 {
+						foundZero = true
+					}
+				}
+
+				assert.True(t, foundLargeMonths, "Should find large months interval")
+				assert.True(t, foundLargeDays, "Should find large days interval")
+				assert.True(t, foundLargeNanos, "Should find large nanoseconds interval")
+				assert.True(t, foundZero, "Should find zero interval")
+				assert.True(t, intervalCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name: "mixed_types_with_interval",
+			setupSQL: `CREATE TABLE test_mixed_interval (
+						id int4, 
+						name text, 
+						duration interval, 
+						active bool
+					   ); 
+					   INSERT INTO test_mixed_interval VALUES 
+					   (1, 'short', '5 minutes'::interval, true),
+					   (2, 'medium', '2 hours 30 minutes'::interval, false),
+					   (3, 'long', '1 day 12 hours'::interval, true),
+					   (4, 'null_duration', null, false);`,
+			querySQL:     "SELECT * FROM test_mixed_interval ORDER BY id",
+			expectedRows: 4,
+			expectedCols: 4,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				// Verify schema
+				schema := record.Schema()
+				assert.Equal(t, "id", schema.Field(0).Name)
+				assert.Equal(t, "name", schema.Field(1).Name)
+				assert.Equal(t, "duration", schema.Field(2).Name)
+				assert.Equal(t, "active", schema.Field(3).Name)
+
+				// Extract columns
+				idCol, ok := record.Column(0).(*array.Int32)
+				require.True(t, ok)
+				nameCol, ok := record.Column(1).(*array.String)
+				require.True(t, ok)
+				durationCol, ok := record.Column(2).(*array.MonthDayNanoInterval)
+				require.True(t, ok)
+				activeCol, ok := record.Column(3).(*array.Boolean)
+				require.True(t, ok)
+
+				// Verify data for each row
+				for i := range int(record.NumRows()) {
+					switch idCol.Value(i) {
+					case 1: // Short interval
+						assert.Equal(t, "short", nameCol.Value(i))
+						duration := durationCol.Value(i)
+						assert.Equal(t, int32(0), duration.Months)
+						assert.Equal(t, int32(0), duration.Days)
+						assert.Equal(t, int64(300000000000), duration.Nanoseconds) // 5 minutes = 300 seconds = 300000000000 nanoseconds
+						assert.True(t, activeCol.Value(i))
+					case 2: // Medium interval
+						assert.Equal(t, "medium", nameCol.Value(i))
+						duration := durationCol.Value(i)
+						assert.Equal(t, int32(0), duration.Months)
+						assert.Equal(t, int32(0), duration.Days)
+						assert.Equal(t, int64(9000000000000), duration.Nanoseconds) // 2.5 hours = 9000 seconds = 9000000000000 nanoseconds
+						assert.False(t, activeCol.Value(i))
+					case 3: // Long interval
+						assert.Equal(t, "long", nameCol.Value(i))
+						duration := durationCol.Value(i)
+						assert.Equal(t, int32(0), duration.Months)
+						assert.Equal(t, int32(1), duration.Days)                     // 1 day
+						assert.Equal(t, int64(43200000000000), duration.Nanoseconds) // 12 hours = 43200 seconds = 43200000000000 nanoseconds
+						assert.True(t, activeCol.Value(i))
+					case 4: // NULL interval
+						assert.Equal(t, "null_duration", nameCol.Value(i))
+						assert.True(t, durationCol.IsNull(i))
+						assert.False(t, activeCol.Value(i))
+					}
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

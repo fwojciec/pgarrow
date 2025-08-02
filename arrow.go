@@ -101,6 +101,8 @@ func createBuilderForType(dataType arrow.DataType, alloc memory.Allocator) (arra
 			return nil, fmt.Errorf("expected TimestampType, got %T", dataType)
 		}
 		return array.NewTimestampBuilder(alloc, timestampType), nil
+	case arrow.INTERVAL_MONTH_DAY_NANO:
+		return array.NewMonthDayNanoIntervalBuilder(alloc), nil
 	default:
 		return nil, fmt.Errorf("unsupported Arrow type: %s", dataType)
 	}
@@ -162,6 +164,8 @@ func (rb *RecordBuilder) appendNonNullValue(builder array.Builder, value any) er
 		return rb.appendTime64Value(b, value)
 	case *array.TimestampBuilder:
 		return rb.appendTimestampValue(b, value)
+	case *array.MonthDayNanoIntervalBuilder:
+		return rb.appendMonthDayNanoIntervalValue(b, value)
 	default:
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
@@ -263,6 +267,15 @@ func (rb *RecordBuilder) appendTimestampValue(builder *array.TimestampBuilder, v
 		return fmt.Errorf("type mismatch: expected int64, got %T", value)
 	}
 	builder.Append(arrow.Timestamp(v))
+	return nil
+}
+
+func (rb *RecordBuilder) appendMonthDayNanoIntervalValue(builder *array.MonthDayNanoIntervalBuilder, value any) error {
+	v, ok := value.(arrow.MonthDayNanoInterval)
+	if !ok {
+		return fmt.Errorf("type mismatch: expected arrow.MonthDayNanoInterval, got %T", value)
+	}
+	builder.Append(v)
 	return nil
 }
 
