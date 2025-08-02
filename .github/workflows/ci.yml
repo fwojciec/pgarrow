@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: pgarrow
+          POSTGRES_PASSWORD: pgarrow
+          POSTGRES_DB: pgarrow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    env:
+      TEST_DATABASE_URL: postgres://pgarrow:pgarrow@localhost:5432/pgarrow?sslmode=disable
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Check formatting
+      run: |
+        UNFORMATTED=$(gofmt -l .)
+        if [ -n "$UNFORMATTED" ]; then
+          echo '::error title=Format Error::Go code is not formatted. Run "go fmt ./..."'
+          echo "$UNFORMATTED" | while read -r file; do
+            echo "::error file=$file::File needs formatting"
+          done
+          exit 1
+        fi
+        echo '✅ All files properly formatted'
+
+    - name: Run go vet
+      run: |
+        if ! go vet ./... 2>&1; then
+          echo '::error title=Vet Error::go vet found issues'
+          exit 1
+        fi
+        echo '✅ go vet passed'
+
+    - name: Check go mod tidy
+      run: |
+        go mod tidy
+        if [ -n "$(git status --porcelain go.mod go.sum)" ]; then
+          echo '::error title=Module Error::go.mod or go.sum is not tidy. Run "go mod tidy"'
+          git diff go.mod go.sum || true
+          exit 1
+        fi
+        echo '✅ go.mod is tidy'
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: v2.1
+
+    - name: Run tests
+      run: |
+        if ! go test -race ./...; then
+          echo '::error title=Test Failures::Tests failed'
+          exit 1
+        fi
+        echo '✅ All tests passed'
