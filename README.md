@@ -49,7 +49,7 @@ for reader.Next() {
 
 ## Supported Types <a id="supported-types"></a>
 
-**11 PostgreSQL types** → **Arrow native format**
+**17 PostgreSQL types** → **Arrow native format**
 
 <details>
 <summary>📋 <strong>Full Type Mapping Table</strong></summary>
@@ -57,6 +57,7 @@ for reader.Next() {
 | PostgreSQL Type | PostgreSQL OID | Arrow Type | Go Type |
 |----------------|---------------|------------|---------|
 | `bool` | 16 | `Boolean` | `bool` |
+| `bytea` | 17 | `Binary` | `[]byte` |
 | `int2` / `smallint` | 21 | `Int16` | `int16` |
 | `int4` / `integer` | 23 | `Int32` | `int32` |
 | `int8` / `bigint` | 20 | `Int64` | `int64` |
@@ -67,10 +68,15 @@ for reader.Next() {
 | `bpchar` / `char(n)` | 1042 | `String` | `string` |
 | `name` | 19 | `String` | `string` |
 | `"char"` | 18 | `String` | `string` |
+| `date` | 1082 | `Date32` | `int32` |
+| `time` | 1083 | `Time64[μs]` | `int64` |
+| `timestamp` | 1114 | `Timestamp[μs]` | `int64` |
+| `timestamptz` | 1184 | `Timestamp[μs, UTC]` | `int64` |
+| `interval` | 1186 | `MonthDayNanoInterval` | `MonthDayNanoInterval` |
 
 </details>
 
-✅ Full NULL handling • ✅ Microsecond timestamps • ✅ Binary data support
+✅ Full NULL handling • ✅ Microsecond precision • ✅ Binary data • ✅ Temporal types • ✅ Interval support
 
 ---
 

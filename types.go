@@ -56,6 +56,7 @@ func NewRegistry() *TypeRegistry {
 	registry.register(&TimeType{})
 	registry.register(&TimestampType{})
 	registry.register(&TimestamptzType{})
+	registry.register(&IntervalType{})
 
 	return registry
 }
@@ -503,4 +504,55 @@ func (t *TimestamptzType) Parse(data []byte) (any, error) {
 	pgMicros := int64(binary.BigEndian.Uint64(data))
 	arrowMicros := pgMicros + PostgresTimestampEpochMicros
 	return arrowMicros, nil
+}
+
+// IntervalType handles PostgreSQL interval type (OID 1186)
+type IntervalType struct{}
+
+func (t *IntervalType) OID() uint32 {
+	return TypeOIDInterval
+}
+
+func (t *IntervalType) Name() string {
+	return "interval"
+}
+
+func (t *IntervalType) ArrowType() arrow.DataType {
+	return arrow.FixedWidthTypes.MonthDayNanoInterval
+}
+
+func (t *IntervalType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+
+	if len(data) != 16 {
+		return nil, fmt.Errorf("invalid data length for interval: expected 16, got %d", len(data))
+	}
+
+	// PostgreSQL interval binary format (16 bytes):
+	// Bytes 0-7:   int64 microseconds (time field)
+	// Bytes 8-11:  int32 days
+	// Bytes 12-15: int32 months
+	// IMPORTANT: Use signed int64 conversion, not uint64, since intervals can be negative
+	pgMicros := int64(binary.BigEndian.Uint64(data[0:8]))
+	pgDays := int32(binary.BigEndian.Uint32(data[8:12]))
+	pgMonths := int32(binary.BigEndian.Uint32(data[12:16]))
+
+	// Convert microseconds to nanoseconds with overflow check
+	const maxMicros = math.MaxInt64 / 1000
+	const minMicros = math.MinInt64 / 1000
+	if pgMicros > maxMicros || pgMicros < minMicros {
+		return nil, fmt.Errorf("interval microseconds overflow: %d", pgMicros)
+	}
+	arrowNanos := pgMicros * 1000
+
+	// Return Arrow MonthDayNanoInterval with field reordering:
+	// PostgreSQL: (microseconds, days, months)
+	// Arrow: (months, days, nanoseconds)
+	return arrow.MonthDayNanoInterval{
+		Months:      pgMonths,
+		Days:        pgDays,
+		Nanoseconds: arrowNanos,
+	}, nil
 }
