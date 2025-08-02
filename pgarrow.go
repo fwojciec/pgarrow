@@ -20,74 +20,94 @@ type Pool struct {
 	allocator memory.Allocator
 }
 
-// NewPool creates a new PGArrow pool from a PostgreSQL connection string.
+// Option configures a Pool during creation.
+type Option func(*poolConfig)
+
+// poolConfig holds configuration options for Pool creation.
+type poolConfig struct {
+	allocator    memory.Allocator
+	existingPool *pgxpool.Pool
+}
+
+// WithAllocator sets a custom memory allocator for Arrow operations.
+// If not specified, memory.DefaultAllocator is used.
+func WithAllocator(alloc memory.Allocator) Option {
+	return func(c *poolConfig) {
+		c.allocator = alloc
+	}
+}
+
+// WithExistingPool uses an existing pgxpool.Pool instead of creating a new one.
+// When this option is used, the Pool will not own the underlying pgxpool and
+// calling Close() will be a no-op. The caller remains responsible for managing
+// the original pgxpool lifecycle.
+func WithExistingPool(pool *pgxpool.Pool) Option {
+	return func(c *poolConfig) {
+		c.existingPool = pool
+	}
+}
+
+// NewPool creates a new PGArrow pool with configurable options.
 // The pool provides instant connections without metadata preloading,
 // making it significantly faster than ADBC for databases with many tables.
+//
+// By default, creates a new pgxpool.Pool from the connection string and uses
+// memory.DefaultAllocator. Use options to customize behavior:
+//
+//   - WithAllocator(alloc): Use custom memory allocator
+//   - WithExistingPool(pool): Use existing pgxpool.Pool instead of creating new one
 //
 // Example connection strings:
 //   - "postgres://user:pass@localhost/dbname"
 //   - "postgres://user:pass@localhost/dbname?sslmode=require"
 //   - "postgres://user:pass@localhost/dbname?pool_max_conns=10"
 //
-// The pool uses pgx internally for connection management and supports
-// all pgx connection parameters. This is a convenience wrapper that uses the default
-// Arrow allocator - for custom memory management, use NewPoolWithAllocator instead.
-func NewPool(ctx context.Context, connString string) (*Pool, error) {
-	return NewPoolWithAllocator(ctx, connString, memory.DefaultAllocator)
-}
-
-// NewPoolWithAllocator creates a new PGArrow pool with a custom memory allocator.
-// This allows advanced users to implement custom memory management strategies,
-// such as tracking allocations, using different memory pools, or implementing
-// memory limits for Arrow operations.
+// Examples:
 //
-// The allocator will be used for all Arrow record construction and must remain
-// valid for the lifetime of the pool.
-func NewPoolWithAllocator(ctx context.Context, connString string, alloc memory.Allocator) (*Pool, error) {
+//	// Basic usage with new pool
+//	pool, err := pgarrow.NewPool(ctx, connString)
+//
+//	// With custom allocator
+//	pool, err := pgarrow.NewPool(ctx, connString, pgarrow.WithAllocator(customAlloc))
+//
+//	// With existing pgx pool
+//	pool, err := pgarrow.NewPool(ctx, "", pgarrow.WithExistingPool(pgxPool))
+//
+//	// Both options combined
+//	pool, err := pgarrow.NewPool(ctx, "",
+//		pgarrow.WithExistingPool(pgxPool),
+//		pgarrow.WithAllocator(customAlloc))
+func NewPool(ctx context.Context, connString string, opts ...Option) (*Pool, error) {
+	// Set defaults
+	config := &poolConfig{
+		allocator: memory.DefaultAllocator,
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	// Use existing pool if provided
+	if config.existingPool != nil {
+		return &Pool{
+			pool:      config.existingPool,
+			isOwner:   false,
+			allocator: config.allocator,
+		}, nil
+	}
+
+	// Create new pool from connection string
 	pool, err := pgxpool.New(ctx, connString)
 	if err != nil {
 		return nil, err
 	}
-	return &Pool{pool: pool, isOwner: true, allocator: alloc}, nil
-}
 
-// NewPoolFromExisting creates a new PGArrow pool from an existing pgxpool.Pool.
-// This allows sharing a single connection pool between transactional (pgx) and
-// analytical (pgarrow) operations, reducing resource overhead and enabling
-// consistent connection configuration.
-//
-// The provided pool remains under the caller's management - calling Close() on
-// the PGArrow pool will NOT close the underlying pgx pool. The caller is
-// responsible for closing the original pgx pool when appropriate.
-//
-// Memory allocation uses the default Arrow allocator.
-//
-// This is particularly useful for services with mixed workloads:
-//
-//	// Create shared pgx pool
-//	pgxPool, err := pgxpool.New(ctx, connString)
-//	if err != nil {
-//	    return err
-//	}
-//	defer pgxPool.Close()
-//
-//	// Use for transactional operations
-//	conn, err := pgxPool.Acquire(ctx)
-//	// ... transactional work
-//
-//	// Use for analytical operations via pgarrow
-//	arrowPool := pgarrow.NewPoolFromExisting(pgxPool)
-//	reader, err := arrowPool.QueryArrow(ctx, "SELECT * FROM analytics_view")
-//	// ... analytical work
-func NewPoolFromExisting(pool *pgxpool.Pool) *Pool {
-	return NewPoolFromExistingWithAllocator(pool, memory.DefaultAllocator)
-}
-
-// NewPoolFromExistingWithAllocator creates a new PGArrow pool from an existing
-// pgxpool.Pool with a custom memory allocator. This combines the benefits of
-// shared connection pools with custom memory management strategies.
-func NewPoolFromExistingWithAllocator(pool *pgxpool.Pool, alloc memory.Allocator) *Pool {
-	return &Pool{pool: pool, isOwner: false, allocator: alloc}
+	return &Pool{
+		pool:      pool,
+		isOwner:   true,
+		allocator: config.allocator,
+	}, nil
 }
 
 // QueryArrow executes a PostgreSQL query and returns results as an Apache Arrow RecordReader.
@@ -238,10 +258,10 @@ func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql 
 // After calling Close, the pool cannot be used for further queries.
 // It's safe to call Close multiple times.
 //
-// If this Pool was created using NewPool(), it owns the underlying pgxpool and will
-// close it when Close() is called.
+// If this Pool was created without WithExistingPool(), it owns the underlying pgxpool
+// and will close it when Close() is called.
 //
-// If this Pool was created using NewPoolFromExisting(), it does NOT own the underlying
+// If this Pool was created with WithExistingPool(), it does NOT own the underlying
 // pgxpool and calling Close() will be a no-op, leaving the original pgxpool unchanged.
 // The caller remains responsible for managing the original pgxpool lifecycle.
 //

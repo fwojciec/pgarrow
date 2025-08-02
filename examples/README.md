@@ -27,14 +27,12 @@ go run main.go
 
 ### 2. Types Example (`types/`)
 
-Comprehensive demonstration of all 7 supported PostgreSQL data types:
-- `bool` (PostgreSQL OID 16)
-- `int2/smallint` (PostgreSQL OID 21) 
-- `int4/integer` (PostgreSQL OID 23)
-- `int8/bigint` (PostgreSQL OID 20)
-- `float4/real` (PostgreSQL OID 700)
-- `float8/double precision` (PostgreSQL OID 701)
-- `text` (PostgreSQL OID 25)
+Comprehensive demonstration of all 17 supported PostgreSQL data types including:
+- `bool`, `bytea`
+- `int2/smallint`, `int4/integer`, `int8/bigint` 
+- `float4/real`, `float8/double precision`
+- `text`, `varchar`, `bpchar/char(n)`, `name`, `"char"`
+- `date`, `time`, `timestamp`, `timestamptz`, `interval`
 
 Also demonstrates:
 - NULL value handling

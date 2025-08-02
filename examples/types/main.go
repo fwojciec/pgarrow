@@ -44,7 +44,7 @@ func setupPool() *pgarrow.Pool {
 		}
 	}()
 
-	pool, err := pgarrow.NewPool(context.Background(), databaseURL)
+	pool, err := pgarrow.NewPool(context.Background(), databaseURL, pgarrow.WithAllocator(alloc))
 	if err != nil {
 		log.Fatalf("Failed to create pool: %v", err)
 	}

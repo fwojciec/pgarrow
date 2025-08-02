@@ -915,7 +915,8 @@ func TestNewPoolFromExisting(t *testing.T) {
 	require.NoError(t, err, "should create pgx pool")
 
 	// Create pgarrow Pool from existing pgx pool
-	pgarrowPool := pgarrow.NewPoolFromExisting(pgxPool)
+	pgarrowPool, err := pgarrow.NewPool(ctx, "", pgarrow.WithExistingPool(pgxPool))
+	require.NoError(t, err, "should create pgarrow pool from existing")
 
 	// Cleanup function
 	cleanup := func() {
@@ -1065,7 +1066,8 @@ func TestPoolOwnershipBehavior(t *testing.T) {
 		defer pgxPool.Close() // We manage this lifecycle
 
 		// Create pgarrow Pool from existing pgxpool - it should NOT own the underlying pgxpool
-		pgarrowPool := pgarrow.NewPoolFromExisting(pgxPool)
+		pgarrowPool, err := pgarrow.NewPool(ctx, "", pgarrow.WithExistingPool(pgxPool))
+		require.NoError(t, err)
 
 		// Verify we can execute a query before calling Close()
 		reader, err := pgarrowPool.QueryArrow(ctx, "SELECT 1 as test")
@@ -1102,7 +1104,8 @@ func TestPoolOwnershipBehavior(t *testing.T) {
 		require.NoError(t, err)
 		defer pgxPool.Close()
 
-		pgarrowPool := pgarrow.NewPoolFromExisting(pgxPool)
+		pgarrowPool, err := pgarrow.NewPool(ctx, "", pgarrow.WithExistingPool(pgxPool))
+		require.NoError(t, err)
 
 		// Multiple Close() calls should be safe (and no-ops)
 		pgarrowPool.Close()
@@ -1117,10 +1120,11 @@ func TestPoolOwnershipBehavior(t *testing.T) {
 
 	t.Run("nil pool safety", func(t *testing.T) {
 		t.Parallel()
-		// Test that NewPoolFromExisting with nil doesn't panic on Close()
+		// Test that WithExistingPool with nil doesn't panic on Close()
 		// This is defensive programming - while passing nil is a programmer error,
 		// Close() should not panic
-		pgarrowPool := pgarrow.NewPoolFromExisting(nil)
+		pgarrowPool, err := pgarrow.NewPool(ctx, "", pgarrow.WithExistingPool(nil))
+		require.NoError(t, err)
 
 		// This should not panic even though pool is nil
 		assert.NotPanics(t, func() {
