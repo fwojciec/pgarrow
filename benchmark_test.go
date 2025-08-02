@@ -11,12 +11,17 @@ import (
 	"github.com/fwojciec/pgarrow"
 )
 
+const (
+	// Default number of rows to use in benchmarks for consistent measurements
+	defaultBenchmarkRowCount = 1000
+)
+
 // Benchmark binary parsing and Arrow conversion for different data types
 
 func BenchmarkBinaryToArrow_Int4(b *testing.B) {
 	benchmarkBinaryToArrow(b, benchmarkConfig{
 		fieldOID:   pgarrow.TypeOIDInt4,
-		valueCount: 1000,
+		valueCount: defaultBenchmarkRowCount,
 		dataGen:    generateInt4Data,
 	})
 }
@@ -24,7 +29,7 @@ func BenchmarkBinaryToArrow_Int4(b *testing.B) {
 func BenchmarkBinaryToArrow_Int8(b *testing.B) {
 	benchmarkBinaryToArrow(b, benchmarkConfig{
 		fieldOID:   pgarrow.TypeOIDInt8,
-		valueCount: 1000,
+		valueCount: defaultBenchmarkRowCount,
 		dataGen:    generateInt8Data,
 	})
 }
@@ -32,7 +37,7 @@ func BenchmarkBinaryToArrow_Int8(b *testing.B) {
 func BenchmarkBinaryToArrow_Float8(b *testing.B) {
 	benchmarkBinaryToArrow(b, benchmarkConfig{
 		fieldOID:   pgarrow.TypeOIDFloat8,
-		valueCount: 1000,
+		valueCount: defaultBenchmarkRowCount,
 		dataGen:    generateFloat8Data,
 	})
 }
@@ -40,7 +45,7 @@ func BenchmarkBinaryToArrow_Float8(b *testing.B) {
 func BenchmarkBinaryToArrow_Text(b *testing.B) {
 	benchmarkBinaryToArrow(b, benchmarkConfig{
 		fieldOID:   pgarrow.TypeOIDText,
-		valueCount: 1000,
+		valueCount: defaultBenchmarkRowCount,
 		dataGen:    generateTextData,
 	})
 }
@@ -48,7 +53,7 @@ func BenchmarkBinaryToArrow_Text(b *testing.B) {
 func BenchmarkBinaryToArrow_Bytea(b *testing.B) {
 	benchmarkBinaryToArrow(b, benchmarkConfig{
 		fieldOID:   pgarrow.TypeOIDBytea,
-		valueCount: 1000,
+		valueCount: defaultBenchmarkRowCount,
 		dataGen:    generateByteaData,
 	})
 }
@@ -65,7 +70,7 @@ func BenchmarkBinaryToArrow_SmallBatch(b *testing.B) {
 func BenchmarkBinaryToArrow_MediumBatch(b *testing.B) {
 	benchmarkBinaryToArrow(b, benchmarkConfig{
 		fieldOID:   pgarrow.TypeOIDInt4,
-		valueCount: 1000,
+		valueCount: defaultBenchmarkRowCount,
 		dataGen:    generateInt4Data,
 	})
 }
@@ -88,7 +93,7 @@ func BenchmarkBinaryToArrow_ByteaMemory(b *testing.B) {
 	b.ReportAllocs()
 	benchmarkBinaryToArrow(b, benchmarkConfig{
 		fieldOID:   pgarrow.TypeOIDBytea,
-		valueCount: 1000,
+		valueCount: defaultBenchmarkRowCount,
 		dataGen:    generateByteaData,
 	})
 }
@@ -97,7 +102,7 @@ func BenchmarkBinaryToArrow_TextMemory(b *testing.B) {
 	b.ReportAllocs()
 	benchmarkBinaryToArrow(b, benchmarkConfig{
 		fieldOID:   pgarrow.TypeOIDText,
-		valueCount: 1000,
+		valueCount: defaultBenchmarkRowCount,
 		dataGen:    generateTextData,
 	})
 }

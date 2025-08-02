@@ -365,6 +365,6 @@ func (t *ByteaType) Parse(data []byte) (any, error) {
 		return nil, nil // NULL value
 	}
 	// Empty bytea (len(data) == 0) is valid - return the empty slice
-	// Data is already safely copied in parseFieldData(), no additional copying needed
+	// Data is returned as a reference to the original buffer (zero-copy); no additional copying is performed
 	return data, nil
 }
