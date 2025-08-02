@@ -19,7 +19,7 @@ for reader.Next() {
 
 | What You Get | How It Helps |
 |--------------|---------------|
-| 🦀 **Pure Go** | Easy deployment, no CGO complexity |
+| 🐹 **Pure Go** | Easy deployment, no CGO complexity |
 | ⚡ **Just-in-Time Metadata** | Fast connections, discover types on-demand |
 | 📊 **Streaming** | Constant memory usage, handles any result size |
 | 🎯 **Arrow Native** | Drop-in `array.RecordReader`, ecosystem ready |
