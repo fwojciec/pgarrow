@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/fwojciec/pgarrow"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
@@ -112,7 +113,7 @@ func setupTestDB(t *testing.T) (*pgarrow.Pool, func()) {
 	connConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s,public", schemaName)
 	connStr := connConfig.ConnString()
 
-	// Create pgarrow Pool with the schema-specific connection
+	// Create pgarrow Pool with the schema-specific connection using default allocator
 	pool, err := pgarrow.NewPool(context.Background(), connStr)
 	require.NoError(t, err, "should create pgarrow pool")
 
@@ -136,6 +137,56 @@ func setupTestDB(t *testing.T) (*pgarrow.Pool, func()) {
 		_, err = cleanupConn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName))
 		if err != nil {
 			t.Logf("failed to drop schema %s: %v", schemaName, err)
+		}
+	}
+
+	return pool, cleanup
+}
+
+// setupTestDBWithAllocator creates a test database with a custom memory allocator
+// This ensures proper memory tracking during tests
+func setupTestDBWithAllocator(t *testing.T, alloc memory.Allocator) (*pgarrow.Pool, func()) {
+	t.Helper()
+
+	// Get database URL from environment
+	databaseURL := getTestDatabaseURL(t)
+
+	// Create random schema name for isolation
+	schemaName := fmt.Sprintf("test_%s_%d", randomID(), time.Now().UnixNano())
+
+	// Create the schema using a regular pgx connection
+	conn, err := pgx.Connect(context.Background(), databaseURL)
+	require.NoError(t, err, "should connect to database for schema creation")
+
+	_, err = conn.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s", schemaName))
+	require.NoError(t, err, "should create test schema")
+	conn.Close(context.Background())
+
+	// Create connection string with search_path set to the test schema
+	connConfig, err := pgx.ParseConfig(databaseURL)
+	require.NoError(t, err, "should parse database URL")
+
+	// Set search_path to use our test schema first, then public
+	connConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s,public", schemaName)
+	connStr := connConfig.ConnString()
+
+	// Create pgarrow Pool with the schema-specific connection and custom allocator
+	pool, err := pgarrow.NewPoolWithAllocator(context.Background(), connStr, alloc)
+	require.NoError(t, err, "should create pgarrow pool")
+
+	// Create test tables in the schema
+	setupTestTables(t, databaseURL, schemaName)
+
+	// Return cleanup function
+	cleanup := func() {
+		// Close the pool first
+		pool.Close()
+
+		// Clean up the schema
+		conn, err := pgx.Connect(context.Background(), databaseURL)
+		if err == nil {
+			_, _ = conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName))
+			conn.Close(context.Background())
 		}
 	}
 

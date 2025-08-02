@@ -24,7 +24,7 @@ func TestPoolQueryArrowBasicIntegration(t *testing.T) {
 	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
 	defer alloc.AssertSize(t, 0)
 
-	pool, cleanup := setupTestDB(t)
+	pool, cleanup := setupTestDBWithAllocator(t, alloc)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -276,7 +276,7 @@ func TestPoolQueryArrowInvalidSQLIntegration(t *testing.T) {
 	reader, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
 	assert.Nil(t, reader)
-	assert.Contains(t, err.Error(), "failed to prepare query")
+	assert.Contains(t, err.Error(), "failed to prepare statement for metadata discovery")
 }
 
 func TestPoolQueryArrowSyntaxErrorIntegration(t *testing.T) {
@@ -291,7 +291,7 @@ func TestPoolQueryArrowSyntaxErrorIntegration(t *testing.T) {
 	reader, err := pool.QueryArrow(ctx, sql)
 	require.Error(t, err)
 	assert.Nil(t, reader)
-	assert.Contains(t, err.Error(), "failed to prepare query")
+	assert.Contains(t, err.Error(), "failed to prepare statement for metadata discovery")
 }
 
 func TestPoolQueryArrowConnectionErrorIntegration(t *testing.T) {

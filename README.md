@@ -108,7 +108,7 @@ go test -bench=. -benchmem  # Run benchmarks
 
 ## AI-First Development with Production Quality
 
-This codebase is written by Claude with Copilot performing code reviews, using a human-supervised quality-first approach. Rather than viewing AI as a productivity tool that requires extensive human cleanup, we treat it as a capable development partner that produces production-ready code when guided by robust processes.
+This codebase is written by Claude with both Copilot and Gemini performing code reviews, using a human-supervised quality-first approach. Rather than viewing AI as a productivity tool that requires extensive human cleanup, we treat it as a capable development partner that produces production-ready code when guided by robust processes.
 
 ### Our Quality Philosophy
 
@@ -118,7 +118,7 @@ This codebase is written by Claude with Copilot performing code reviews, using a
 - **Specification Compliance**: Real PostgreSQL binary format validation with comprehensive boundary testing
 - **Performance Validation**: Benchmarks ensure efficient type conversions and memory usage
 - **Multi-Layer Validation**: Race detection (`t.Parallel()` + `-race`), linting, integration testing via `make validate`
-- **AI-AI Collaboration**: Copilot reviews trigger investigation, not blind acceptance
+- **AI-AI Collaboration**: Copilot and Gemini reviews trigger investigation, not blind acceptance
 - **Reference Architecture**: C++ ADBC implementation provides invaluable implementation guidance
 
 ### Production Readiness
