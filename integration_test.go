@@ -1787,6 +1787,47 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "date_signed_integer_regression",
+			setupSQL: `CREATE TABLE test_date_signed (val date); 
+					   INSERT INTO test_date_signed VALUES 
+					   ('1950-01-01'::date), ('1960-01-01'::date), ('1970-01-01'::date), 
+					   ('1980-01-01'::date), ('1990-01-01'::date), ('1999-12-31'::date);`,
+			querySQL:     "SELECT * FROM test_date_signed ORDER BY val",
+			args:         nil,
+			expectedRows: 6,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				dateCol, ok := record.Column(0).(*array.Date32)
+				require.True(t, ok)
+
+				// This test specifically verifies that dates before 2000-01-01
+				// (PostgreSQL epoch) are handled correctly as signed integers.
+				// The old uint32() cast would have corrupted negative values.
+
+				expectedDates := []struct {
+					date              string
+					expectedArrowDays int32
+				}{
+					{"1950-01-01", -7305}, // Very negative
+					{"1960-01-01", -3653}, // Negative
+					{"1970-01-01", 0},     // Arrow epoch (critical boundary)
+					{"1980-01-01", 3652},  // Positive
+					{"1990-01-01", 7305},  // Positive
+					{"1999-12-31", 10956}, // Just before PG epoch
+				}
+
+				require.Equal(t, len(expectedDates), int(record.NumRows()))
+
+				for i, expected := range expectedDates {
+					actualDays := int32(dateCol.Value(i))
+					assert.Equal(t, expected.expectedArrowDays, actualDays,
+						"Date %s should convert to %d Arrow days, got %d",
+						expected.date, expected.expectedArrowDays, actualDays)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
