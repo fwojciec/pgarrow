@@ -1,79 +1,58 @@
 # PGArrow
 
-PGArrow is a pure Go library that converts PostgreSQL query results directly to Apache Arrow format, without CGO dependencies. It uses a streaming RecordReader architecture for optimal memory efficiency and performance.
+**Fast PostgreSQL → Apache Arrow conversion in pure Go**
 
-**Key Benefits:**
-- ✅ **Lazy metadata loading** (no upfront column type preloading)  
-- ✅ **Zero CGO dependencies** (pure Go)
-- ✅ **Streaming architecture** (constant memory usage, scalable to any result set size)
-- ✅ **High performance** (direct binary format conversion, DuckDB-optimized batching)
-- ✅ **pgx compatibility** (uses pgxpool for connection management)
-- ✅ **Arrow ecosystem ready** (implements standard array.RecordReader interface)
+Zero-CGO library that streams PostgreSQL query results directly to Arrow format using binary protocol. Perfect for analytical workloads, data pipelines, and Arrow ecosystem integration.
+
+```go
+// One pool, many queries - streaming results
+reader, err := pool.QueryArrow(ctx, "SELECT * FROM large_table")
+defer reader.Release()
+
+for reader.Next() {
+    batch := reader.Record() // Arrow record batch
+    // Process with Arrow ecosystem (DuckDB, DataFusion, etc.)
+}
+```
+
+## Why PGArrow?
+
+| What You Get | How It Helps |
+|--------------|---------------|
+| 🦀 **Pure Go** | Easy deployment, no CGO complexity |
+| ⚡ **Just-in-Time Metadata** | Fast connections, discover types on-demand |
+| 📊 **Streaming** | Constant memory usage, handles any result size |
+| 🎯 **Arrow Native** | Drop-in `array.RecordReader`, ecosystem ready |
 
 ## Quick Start
 
-### Installation
-
+### Install
 ```bash
 go get github.com/fwojciec/pgarrow
 ```
 
-### Basic Usage
-
+### 30-Second Example
 ```go
-package main
+pool, _ := pgarrow.NewPool(ctx, "postgres://...")
+reader, _ := pool.QueryArrow(ctx, "SELECT id, name FROM users")
+defer reader.Release()
 
-import (
-    "context"
-    "fmt"
-    "log"
-
-    "github.com/apache/arrow-go/v18/arrow/array"
-    "github.com/fwojciec/pgarrow"
-)
-
-func main() {
-    // Create pool
-    pool, err := pgarrow.NewPool(context.Background(), 
-        "postgres://user:password@localhost/dbname")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer pool.Close()
-
-    // Execute query and get Arrow RecordReader (streaming)
-    reader, err := pool.QueryArrow(context.Background(), 
-        "SELECT id, name, active FROM users")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer reader.Release()
-
-    // Stream through batches of data
-    for reader.Next() {
-        record := reader.Record()
-        
-        // Access data using Arrow arrays
-        idCol := record.Column(0).(*array.Int32)
-        nameCol := record.Column(1).(*array.String)
-        activeCol := record.Column(2).(*array.Boolean)
-
-        for i := 0; i < int(record.NumRows()); i++ {
-            fmt.Printf("ID: %d, Name: %s, Active: %t\n",
-                idCol.Value(i), nameCol.Value(i), activeCol.Value(i))
-        }
-    }
-    
-    // Check for errors
-    if err := reader.Err(); err != nil {
-        log.Fatal(err)
-    }
+for reader.Next() {
+    record := reader.Record()
+    // Standard Arrow record - works with any Arrow tool
 }
 ```
 
-## Supported Data Types
+[▶️ **Run Complete Examples**](examples/) | [📊 **See All Data Types**](#supported-types) | [🚀 **Performance Details**](#performance)
 
-PGArrow supports 11 PostgreSQL data types with direct Arrow format conversion:
+---
+
+## Supported Types <a id="supported-types"></a>
+
+**11 PostgreSQL types** → **Arrow native format**
+
+<details>
+<summary>📋 <strong>Full Type Mapping Table</strong></summary>
 
 | PostgreSQL Type | PostgreSQL OID | Arrow Type | Go Type |
 |----------------|---------------|------------|---------|
@@ -89,99 +68,79 @@ PGArrow supports 11 PostgreSQL data types with direct Arrow format conversion:
 | `name` | 19 | `String` | `string` |
 | `"char"` | 18 | `String` | `string` |
 
-### NULL Value Handling
+</details>
 
-PGArrow properly handles PostgreSQL NULL values using Arrow's null bitmap:
+✅ Full NULL handling • ✅ Microsecond timestamps • ✅ Binary data support
 
-```go
-reader, err := pool.QueryArrow(ctx, "SELECT id, name FROM users")
-if err != nil {
-    log.Fatal(err)
-}
-defer reader.Release()
+---
 
-for reader.Next() {
-    record := reader.Record()
-    nameCol := record.Column(1).(*array.String)
-    
-    for i := 0; i < int(record.NumRows()); i++ {
-        if nameCol.IsNull(i) {
-            fmt.Printf("Row %d: name is NULL\n", i)
-        } else {
-            fmt.Printf("Row %d: name is %s\n", i, nameCol.Value(i))
-        }
-    }
-}
+## How It Works
 
-if err := reader.Err(); err != nil {
-    log.Fatal(err)
-}
+```
+PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
+                ↳ No schema preloading
+                ↳ Constant memory usage  
+                ↳ Zero intermediate copies
 ```
 
-## Examples
+**Core Philosophy**: Just-in-time metadata, stream everything, copy nothing.
 
-See the [`examples/`](examples/) directory for complete working examples:
+---
 
-- [`examples/simple/`](examples/simple/) - Basic QueryArrow usage
-- [`examples/types/`](examples/types/) - All supported data types demonstration  
-- [`examples/README.md`](examples/README.md) - Setup and run instructions
+## Performance <a id="performance"></a>
 
-## Performance
+- 🏃 **Fast Connections**: Just-in-time metadata discovery, no upfront schema queries
+- 🧠 **Memory Efficient**: Constant usage via streaming batches  
+- ⚡ **High Throughput**: Direct binary conversion, no JSON overhead
+- 📊 **Optimized Batching**: DuckDB-optimized 128K row batches
 
-PGArrow uses lazy metadata loading, avoiding upfront preloading of all database schema information. Column types are discovered only when needed during query execution.
-
-**Memory Efficiency:**
-- Direct binary format parsing (PostgreSQL COPY BINARY)
-- Streaming architecture with configurable batch sizes
-- Zero-copy data access where possible
-- Proper memory management with Arrow's reference counting
-
-Run benchmarks:
 ```bash
-go test -bench=. -benchmem ./...
+go test -bench=. -benchmem  # Run benchmarks
 ```
 
-For detailed performance analysis and baseline metrics, see [`docs/benchmarks.md`](docs/benchmarks.md).
+---
 
-## Architecture
+## AI-First Development with Production Quality
 
-PGArrow uses PostgreSQL's `COPY TO BINARY` format with streaming RecordReader architecture for optimal data transfer and constant memory usage:
+This codebase is written by Claude with Copilot performing code reviews, using a human-supervised quality-first approach. Rather than viewing AI as a productivity tool that requires extensive human cleanup, we treat it as a capable development partner that produces production-ready code when guided by robust processes.
 
-```
-PostgreSQL → COPY TO BINARY → Binary Parser → Type Handlers → Arrow RecordReader → Arrow Record Batches
-```
+### Our Quality Philosophy
 
-### Core Components
+**Process over Polish**: Quality comes from systematic validation and constant iteration within established feedback loops, not post-hoc cleanup.
 
-1. **Pool**: Connection management using pgxpool with lazy metadata loading
-2. **RecordReader**: Streaming interface implementing `array.RecordReader` with proper reference counting
-3. **Binary Parser**: PostgreSQL binary format decoder with support for all 11 data types  
-4. **Type System**: OID-based type handlers with direct Arrow conversion
-5. **Record Builder**: Arrow record construction with proper memory management and DuckDB-optimized batching (128,800 rows)
+- **Test-Driven Development**: Tests written first, implementation follows (documented in `CLAUDE.md`)
+- **Specification Compliance**: Real PostgreSQL binary format validation with comprehensive boundary testing
+- **Performance Validation**: Benchmarks ensure efficient type conversions and memory usage
+- **Multi-Layer Validation**: Race detection (`t.Parallel()` + `-race`), linting, integration testing via `make validate`
+- **AI-AI Collaboration**: Copilot reviews trigger investigation, not blind acceptance
+- **Reference Architecture**: C++ ADBC implementation provides invaluable implementation guidance
 
-### Streaming Benefits
+### Production Readiness
 
-- **Constant Memory Usage**: Processes data in configurable batches regardless of result set size
-- **Connection Lifecycle**: Proper connection management tied to RecordReader lifecycle
-- **Reference Counting**: Atomic reference counting following Apache Arrow patterns
-- **Zero-Copy Access**: Direct access to Arrow data without intermediate copies
+While developed with rigorous quality processes, this software should be considered **alpha quality** until battle-tested in production environments. The systematic approach demonstrates AI's potential for quality code generation, but real-world validation remains essential.
 
-## Status
+---
 
-PGArrow is currently in active development. The core functionality is implemented and working:
+## Documentation
 
-- ✅ All 11 supported data types
-- ✅ NULL value handling  
-- ✅ Connection pooling with lazy metadata loading
-- ✅ Binary format parsing
-- ✅ Streaming RecordReader architecture
-- ✅ Arrow record building with batching
-- ✅ Memory safety and leak prevention
-- ✅ Comprehensive test suite with parallel execution
-- ✅ Performance benchmarks
-- ✅ DuckDB-optimized batch sizes
+- [📖 **Complete Examples**](examples/) - Working code for all features
+- [🏗️ **Architecture Guide**](CLAUDE.md) - How it works internally  
+- [⚡ **Performance Analysis**](docs/benchmarks.md) - Detailed metrics
+- [🧪 **Testing Strategy**](docs/testing.md) - Our quality approach
 
-## Known Limitations
+## Status & Limitations
 
-- **Parameterized Queries**: PGArrow does not support parameterized queries ($1, $2, etc.) due to PostgreSQL's COPY TO BINARY protocol limitations. Use literal values in your SQL queries instead.
-- **Limited Data Types**: Currently supports 11 PostgreSQL data types. Additional types can be added as needed.
+**✅ Ready for experimentation:**
+- Core functionality complete
+- 11 data types supported
+- Comprehensive test suite
+- Performance benchmarks
+
+**⚠️ Known limits:**
+- No parameterized queries (COPY protocol limitation)
+- Alpha quality - production validation needed
+- Limited to 11 PostgreSQL types (more coming)
+
+---
+
+**Questions?** [Open an issue](../../issues) • **Contributing:** See [CLAUDE.md](CLAUDE.md)
