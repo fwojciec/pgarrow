@@ -74,6 +74,22 @@ func BenchmarkBinaryToArrow_Time(b *testing.B) {
 	})
 }
 
+func BenchmarkBinaryToArrow_Timestamp(b *testing.B) {
+	benchmarkBinaryToArrow(b, benchmarkConfig{
+		fieldOID:   pgarrow.TypeOIDTimestamp,
+		valueCount: defaultBenchmarkRowCount,
+		dataGen:    generateTimestampData,
+	})
+}
+
+func BenchmarkBinaryToArrow_Timestamptz(b *testing.B) {
+	benchmarkBinaryToArrow(b, benchmarkConfig{
+		fieldOID:   pgarrow.TypeOIDTimestamptz,
+		valueCount: defaultBenchmarkRowCount,
+		dataGen:    generateTimestamptzData,
+	})
+}
+
 // Benchmark different batch sizes
 func BenchmarkBinaryToArrow_SmallBatch(b *testing.B) {
 	benchmarkBinaryToArrow(b, benchmarkConfig{
@@ -479,6 +495,43 @@ func generateTimeData(count int) []byte {
 		// 24 hours = 86400 seconds = 86400000000 microseconds
 		timeMicros := int64(i % 86400000000)
 		mustWrite(&buf, binary.BigEndian, uint64(timeMicros))
+	}
+
+	mustWrite(&buf, binary.BigEndian, int16(-1))
+	return buf.Bytes()
+}
+
+func generateTimestampData(count int) []byte {
+	var buf bytes.Buffer
+	writePGCopyHeader(&buf)
+
+	for i := 0; i < count; i++ {
+		mustWrite(&buf, binary.BigEndian, int16(1))
+		mustWrite(&buf, binary.BigEndian, int32(8))
+		// Generate PostgreSQL timestamp values (microseconds since 2000-01-01)
+		// Range from -946684800000000 (1970-01-01) to +946684800000000 (2030-01-01) for variety
+		// This creates a reasonable range for benchmarking without overflow
+		baseTimestamp := int64(i * 86400000000) // Days in microseconds
+		timestampMicros := baseTimestamp%(2*946684800000000) - 946684800000000
+		mustWrite(&buf, binary.BigEndian, uint64(timestampMicros))
+	}
+
+	mustWrite(&buf, binary.BigEndian, int16(-1))
+	return buf.Bytes()
+}
+
+func generateTimestamptzData(count int) []byte {
+	var buf bytes.Buffer
+	writePGCopyHeader(&buf)
+
+	for i := 0; i < count; i++ {
+		mustWrite(&buf, binary.BigEndian, int16(1))
+		mustWrite(&buf, binary.BigEndian, int32(8))
+		// Generate PostgreSQL timestamptz values (microseconds since 2000-01-01 UTC)
+		// Same format as timestamp - PostgreSQL handles timezone internally
+		baseTimestamp := int64(i * 86400000000) // Days in microseconds
+		timestampMicros := baseTimestamp%(2*946684800000000) - 946684800000000
+		mustWrite(&buf, binary.BigEndian, uint64(timestampMicros))
 	}
 
 	mustWrite(&buf, binary.BigEndian, int16(-1))

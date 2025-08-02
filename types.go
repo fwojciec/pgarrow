@@ -11,6 +11,8 @@ import (
 const (
 	// PostgreSQL epoch adjustment: days from 1970-01-01 to 2000-01-01
 	PostgresDateEpochDays = 10957
+	// PostgreSQL timestamp epoch adjustment: microseconds from 1970-01-01 to 2000-01-01
+	PostgresTimestampEpochMicros = 946684800000000
 )
 
 // TypeHandler defines the interface for PostgreSQL type handlers
@@ -52,6 +54,8 @@ func NewRegistry() *TypeRegistry {
 	registry.register(&CharType{})
 	registry.register(&DateType{})
 	registry.register(&TimeType{})
+	registry.register(&TimestampType{})
+	registry.register(&TimestamptzType{})
 
 	return registry
 }
@@ -433,4 +437,70 @@ func (t *TimeType) Parse(data []byte) (any, error) {
 	// Arrow Time64[microsecond] also uses microseconds - direct conversion
 	timeMicros := int64(binary.BigEndian.Uint64(data))
 	return timeMicros, nil
+}
+
+// TimestampType handles PostgreSQL timestamp type (OID 1114)
+type TimestampType struct{}
+
+func (t *TimestampType) OID() uint32 {
+	return TypeOIDTimestamp
+}
+
+func (t *TimestampType) Name() string {
+	return "timestamp"
+}
+
+func (t *TimestampType) ArrowType() arrow.DataType {
+	return &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: ""}
+}
+
+func (t *TimestampType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+
+	if len(data) != 8 {
+		return nil, fmt.Errorf("invalid data length for timestamp: expected 8, got %d", len(data))
+	}
+
+	// PostgreSQL timestamp is stored as microseconds since 2000-01-01
+	// Arrow timestamp uses microseconds since 1970-01-01
+	// Add epoch adjustment to convert from PostgreSQL epoch to Arrow epoch
+	// IMPORTANT: Use signed int64 conversion, not uint64, since PG timestamps can be negative (before 2000-01-01)
+	pgMicros := int64(binary.BigEndian.Uint64(data))
+	arrowMicros := pgMicros + PostgresTimestampEpochMicros
+	return arrowMicros, nil
+}
+
+// TimestamptzType handles PostgreSQL timestamptz type (OID 1184)
+type TimestamptzType struct{}
+
+func (t *TimestamptzType) OID() uint32 {
+	return TypeOIDTimestamptz
+}
+
+func (t *TimestamptzType) Name() string {
+	return "timestamptz"
+}
+
+func (t *TimestamptzType) ArrowType() arrow.DataType {
+	return &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}
+}
+
+func (t *TimestamptzType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+
+	if len(data) != 8 {
+		return nil, fmt.Errorf("invalid data length for timestamptz: expected 8, got %d", len(data))
+	}
+
+	// PostgreSQL timestamptz is stored as microseconds since 2000-01-01 UTC
+	// Arrow timestamp uses microseconds since 1970-01-01
+	// Add epoch adjustment to convert from PostgreSQL epoch to Arrow epoch
+	// IMPORTANT: Use signed int64 conversion, not uint64, since PG timestamps can be negative (before 2000-01-01)
+	pgMicros := int64(binary.BigEndian.Uint64(data))
+	arrowMicros := pgMicros + PostgresTimestampEpochMicros
+	return arrowMicros, nil
 }
