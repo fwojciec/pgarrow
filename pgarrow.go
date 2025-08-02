@@ -15,7 +15,8 @@ import (
 // It enables executing PostgreSQL queries and receiving results directly
 // in Apache Arrow format without CGO dependencies.
 type Pool struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	isOwner bool // tracks whether this Pool should close the underlying pgxpool
 }
 
 // NewPool creates a new PGArrow pool from a PostgreSQL connection string.
@@ -34,7 +35,7 @@ func NewPool(ctx context.Context, connString string) (*Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Pool{pool: pool}, nil
+	return &Pool{pool: pool, isOwner: true}, nil
 }
 
 // NewPoolFromExisting creates a new PGArrow pool from an existing pgxpool.Pool.
@@ -64,7 +65,7 @@ func NewPool(ctx context.Context, connString string) (*Pool, error) {
 //	reader, err := arrowPool.QueryArrow(ctx, "SELECT * FROM analytics_view")
 //	// ... analytical work
 func NewPoolFromExisting(pool *pgxpool.Pool) *Pool {
-	return &Pool{pool: pool}
+	return &Pool{pool: pool, isOwner: false}
 }
 
 // QueryArrow executes a PostgreSQL query and returns results as an Apache Arrow RecordReader.
@@ -189,14 +190,16 @@ func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql 
 	return reader, nil
 }
 
-// Close closes the pool and all its connections.
+// Close closes the pool and all its connections if this Pool owns the underlying pgxpool.
 // After calling Close, the pool cannot be used for further queries.
 // It's safe to call Close multiple times.
 //
-// IMPORTANT: If this Pool was created using NewPoolFromExisting(), calling
-// Close() will close the underlying pgx pool, which may affect other
-// components sharing the same pool. In such cases, the caller should manage
-// the pgx pool lifecycle directly instead of calling Close() on the PGArrow pool.
+// If this Pool was created using NewPool(), it owns the underlying pgxpool and will
+// close it when Close() is called.
+//
+// If this Pool was created using NewPoolFromExisting(), it does NOT own the underlying
+// pgxpool and calling Close() will be a no-op, leaving the original pgxpool unchanged.
+// The caller remains responsible for managing the original pgxpool lifecycle.
 //
 // This method should be called when the pool is no longer needed,
 // typically using defer after pool creation:
@@ -207,5 +210,7 @@ func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql 
 //	}
 //	defer pool.Close()
 func (p *Pool) Close() {
-	p.pool.Close()
+	if p.isOwner {
+		p.pool.Close()
+	}
 }
