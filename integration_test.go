@@ -1114,6 +1114,25 @@ func TestPoolOwnershipBehavior(t *testing.T) {
 		require.NoError(t, err)
 		pgxConn.Release()
 	})
+
+	t.Run("nil pool safety", func(t *testing.T) {
+		t.Parallel()
+		// Test that NewPoolFromExisting with nil doesn't panic on Close()
+		// This is defensive programming - while passing nil is a programmer error,
+		// Close() should not panic
+		pgarrowPool := pgarrow.NewPoolFromExisting(nil)
+
+		// This should not panic even though pool is nil
+		assert.NotPanics(t, func() {
+			pgarrowPool.Close()
+		}, "Close() should not panic even with nil pool")
+
+		// Multiple calls should also be safe
+		assert.NotPanics(t, func() {
+			pgarrowPool.Close()
+			pgarrowPool.Close()
+		}, "Multiple Close() calls should not panic with nil pool")
+	})
 }
 
 // TestTimestampTypesBasicIntegration tests basic timestamp functionality - DISABLED due to PostgreSQL type promotion

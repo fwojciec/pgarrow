@@ -210,7 +210,7 @@ func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql 
 //	}
 //	defer pool.Close()
 func (p *Pool) Close() {
-	if p.isOwner {
+	if p.isOwner && p.pool != nil {
 		p.pool.Close()
 	}
 }
