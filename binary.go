@@ -20,6 +20,8 @@ const (
 	TypeOIDBpchar  = 1042
 	TypeOIDVarchar = 1043
 	TypeOIDChar    = 18
+	TypeOIDDate    = 1082
+	TypeOIDTime    = 1083
 )
 
 // Parser parses PostgreSQL COPY binary format data
@@ -192,7 +194,7 @@ func (p *Parser) parseFieldData(data []byte, oid uint32) any {
 		return string(data)
 
 	default:
-		// For primitive types (bool, int, float), return raw bytes
+		// For primitive types (bool, int, float, date, time), return raw bytes
 		// TypeHandler will do the conversion
 		return data
 	}

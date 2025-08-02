@@ -58,6 +58,22 @@ func BenchmarkBinaryToArrow_Bytea(b *testing.B) {
 	})
 }
 
+func BenchmarkBinaryToArrow_Date(b *testing.B) {
+	benchmarkBinaryToArrow(b, benchmarkConfig{
+		fieldOID:   pgarrow.TypeOIDDate,
+		valueCount: defaultBenchmarkRowCount,
+		dataGen:    generateDateData,
+	})
+}
+
+func BenchmarkBinaryToArrow_Time(b *testing.B) {
+	benchmarkBinaryToArrow(b, benchmarkConfig{
+		fieldOID:   pgarrow.TypeOIDTime,
+		valueCount: defaultBenchmarkRowCount,
+		dataGen:    generateTimeData,
+	})
+}
+
 // Benchmark different batch sizes
 func BenchmarkBinaryToArrow_SmallBatch(b *testing.B) {
 	benchmarkBinaryToArrow(b, benchmarkConfig{
@@ -429,6 +445,40 @@ func generateMixedTypeData(count int) []byte {
 		} else {
 			buf.WriteByte(0)
 		}
+	}
+
+	mustWrite(&buf, binary.BigEndian, int16(-1))
+	return buf.Bytes()
+}
+
+func generateDateData(count int) []byte {
+	var buf bytes.Buffer
+	writePGCopyHeader(&buf)
+
+	for i := 0; i < count; i++ {
+		mustWrite(&buf, binary.BigEndian, int16(1))
+		mustWrite(&buf, binary.BigEndian, int32(4))
+		// Generate PostgreSQL date values (days since 2000-01-01)
+		// Range from -10957 (1970-01-01) to +10957 (2030-01-01) for variety
+		pgDays := int32(i%21914 - 10957)
+		mustWrite(&buf, binary.BigEndian, pgDays)
+	}
+
+	mustWrite(&buf, binary.BigEndian, int16(-1))
+	return buf.Bytes()
+}
+
+func generateTimeData(count int) []byte {
+	var buf bytes.Buffer
+	writePGCopyHeader(&buf)
+
+	for i := 0; i < count; i++ {
+		mustWrite(&buf, binary.BigEndian, int16(1))
+		mustWrite(&buf, binary.BigEndian, int32(8))
+		// Generate PostgreSQL time values (microseconds since midnight)
+		// 24 hours = 86400 seconds = 86400000000 microseconds
+		timeMicros := int64(i % 86400000000)
+		mustWrite(&buf, binary.BigEndian, uint64(timeMicros))
 	}
 
 	mustWrite(&buf, binary.BigEndian, int16(-1))

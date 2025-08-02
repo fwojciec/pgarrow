@@ -87,6 +87,20 @@ func createBuilderForType(dataType arrow.DataType, alloc memory.Allocator) (arra
 		return array.NewStringBuilder(alloc), nil
 	case arrow.BINARY:
 		return array.NewBinaryBuilder(alloc, arrow.BinaryTypes.Binary), nil
+	case arrow.DATE32:
+		return array.NewDate32Builder(alloc), nil
+	case arrow.TIME64:
+		timeType, ok := dataType.(*arrow.Time64Type)
+		if !ok {
+			return nil, fmt.Errorf("expected Time64Type, got %T", dataType)
+		}
+		return array.NewTime64Builder(alloc, timeType), nil
+	case arrow.TIMESTAMP:
+		timestampType, ok := dataType.(*arrow.TimestampType)
+		if !ok {
+			return nil, fmt.Errorf("expected TimestampType, got %T", dataType)
+		}
+		return array.NewTimestampBuilder(alloc, timestampType), nil
 	default:
 		return nil, fmt.Errorf("unsupported Arrow type: %s", dataType)
 	}
@@ -142,6 +156,12 @@ func (rb *RecordBuilder) appendNonNullValue(builder array.Builder, value any) er
 		return rb.appendStringValue(b, value)
 	case *array.BinaryBuilder:
 		return rb.appendBinaryValue(b, value)
+	case *array.Date32Builder:
+		return rb.appendDate32Value(b, value)
+	case *array.Time64Builder:
+		return rb.appendTime64Value(b, value)
+	case *array.TimestampBuilder:
+		return rb.appendTimestampValue(b, value)
 	default:
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
@@ -216,6 +236,33 @@ func (rb *RecordBuilder) appendBinaryValue(builder *array.BinaryBuilder, value a
 		return fmt.Errorf("type mismatch: expected []byte, got %T", value)
 	}
 	builder.Append(v)
+	return nil
+}
+
+func (rb *RecordBuilder) appendDate32Value(builder *array.Date32Builder, value any) error {
+	v, ok := value.(int32)
+	if !ok {
+		return fmt.Errorf("type mismatch: expected int32, got %T", value)
+	}
+	builder.Append(arrow.Date32(v))
+	return nil
+}
+
+func (rb *RecordBuilder) appendTime64Value(builder *array.Time64Builder, value any) error {
+	v, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("type mismatch: expected int64, got %T", value)
+	}
+	builder.Append(arrow.Time64(v))
+	return nil
+}
+
+func (rb *RecordBuilder) appendTimestampValue(builder *array.TimestampBuilder, value any) error {
+	v, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("type mismatch: expected int64, got %T", value)
+	}
+	builder.Append(arrow.Timestamp(v))
 	return nil
 }
 
