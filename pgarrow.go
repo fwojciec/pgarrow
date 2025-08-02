@@ -15,8 +15,9 @@ import (
 // It enables executing PostgreSQL queries and receiving results directly
 // in Apache Arrow format without CGO dependencies.
 type Pool struct {
-	pool    *pgxpool.Pool
-	isOwner bool // tracks whether this Pool should close the underlying pgxpool
+	pool      *pgxpool.Pool
+	isOwner   bool // tracks whether this Pool should close the underlying pgxpool
+	allocator memory.Allocator
 }
 
 // NewPool creates a new PGArrow pool from a PostgreSQL connection string.
@@ -29,13 +30,24 @@ type Pool struct {
 //   - "postgres://user:pass@localhost/dbname?pool_max_conns=10"
 //
 // The pool uses pgx internally for connection management and supports
-// all pgx connection parameters.
+// all pgx connection parameters. Memory allocation uses the default Arrow allocator.
 func NewPool(ctx context.Context, connString string) (*Pool, error) {
+	return NewPoolWithAllocator(ctx, connString, memory.DefaultAllocator)
+}
+
+// NewPoolWithAllocator creates a new PGArrow pool with a custom memory allocator.
+// This allows advanced users to implement custom memory management strategies,
+// such as tracking allocations, using different memory pools, or implementing
+// memory limits for Arrow operations.
+//
+// The allocator will be used for all Arrow record construction and must remain
+// valid for the lifetime of the pool.
+func NewPoolWithAllocator(ctx context.Context, connString string, alloc memory.Allocator) (*Pool, error) {
 	pool, err := pgxpool.New(ctx, connString)
 	if err != nil {
 		return nil, err
 	}
-	return &Pool{pool: pool, isOwner: true}, nil
+	return &Pool{pool: pool, isOwner: true, allocator: alloc}, nil
 }
 
 // NewPoolFromExisting creates a new PGArrow pool from an existing pgxpool.Pool.
@@ -46,6 +58,8 @@ func NewPool(ctx context.Context, connString string) (*Pool, error) {
 // The provided pool remains under the caller's management - calling Close() on
 // the PGArrow pool will NOT close the underlying pgx pool. The caller is
 // responsible for closing the original pgx pool when appropriate.
+//
+// Memory allocation uses the default Arrow allocator.
 //
 // This is particularly useful for services with mixed workloads:
 //
@@ -65,7 +79,14 @@ func NewPool(ctx context.Context, connString string) (*Pool, error) {
 //	reader, err := arrowPool.QueryArrow(ctx, "SELECT * FROM analytics_view")
 //	// ... analytical work
 func NewPoolFromExisting(pool *pgxpool.Pool) *Pool {
-	return &Pool{pool: pool, isOwner: false}
+	return NewPoolFromExistingWithAllocator(pool, memory.DefaultAllocator)
+}
+
+// NewPoolFromExistingWithAllocator creates a new PGArrow pool from an existing
+// pgxpool.Pool with a custom memory allocator. This combines the benefits of
+// shared connection pools with custom memory management strategies.
+func NewPoolFromExistingWithAllocator(pool *pgxpool.Pool, alloc memory.Allocator) *Pool {
+	return &Pool{pool: pool, isOwner: false, allocator: alloc}
 }
 
 // QueryArrow executes a PostgreSQL query and returns results as an Apache Arrow RecordReader.
@@ -114,50 +135,72 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.R
 
 	conn, err := p.pool.Acquire(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire connection: %w", err)
+		return nil, &ConnectionError{
+			ConnectionStr: maskConnectionString(""),
+			Err:           err,
+		}
 	}
 
 	// Get metadata and create schema
-	schema, fieldOIDs, err := p.getQueryMetadata(ctx, conn, sql, args...)
+	schema, fieldOIDs, err := p.getQueryMetadata(ctx, conn, sql)
 	if err != nil {
 		conn.Release()
-		return nil, err
+		return nil, &QueryError{
+			SQL:       sql,
+			Operation: "metadata_discovery",
+			Err:       err,
+		}
 	}
 
 	// Execute COPY and parse binary data - connection lifecycle is now managed by the reader
 	reader, err := p.executeCopyAndParse(ctx, conn, sql, schema, fieldOIDs)
 	if err != nil {
 		conn.Release()
-		return nil, err
+		return nil, &QueryError{
+			SQL:       sql,
+			Operation: "copy_execution",
+			Err:       err,
+		}
 	}
 
 	return reader, nil
 }
 
-// getQueryMetadata executes query to extract column metadata and create Arrow schema
-func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql string, args ...any) (*arrow.Schema, []uint32, error) {
-	rows, err := conn.Conn().Query(ctx, sql, args...)
+// getQueryMetadata uses PREPARE to extract column metadata without executing the query
+func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql string) (*arrow.Schema, []uint32, error) {
+	// Use PREPARE to get metadata without executing the full query - much more efficient!
+	// Generate a unique statement name to avoid collisions in concurrent usage
+	stmtName := fmt.Sprintf("pgarrow_meta_%p", conn)
+
+	sd, err := conn.Conn().Prepare(ctx, stmtName, sql)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to prepare query: %w", err)
-	}
-	rows.Close() // We only need field descriptions
-
-	fieldDescriptions := rows.FieldDescriptions()
-	if len(fieldDescriptions) == 0 {
-		return nil, nil, fmt.Errorf("query returned no columns")
+		return nil, nil, fmt.Errorf("failed to prepare statement for metadata discovery - invalid SQL syntax or unsupported query structure: %w", err)
 	}
 
-	// Create column info and OID list
-	columns := make([]ColumnInfo, len(fieldDescriptions))
-	fieldOIDs := make([]uint32, len(fieldDescriptions))
-	for i, fd := range fieldDescriptions {
-		columns[i] = ColumnInfo{Name: fd.Name, OID: fd.DataTypeOID}
-		fieldOIDs[i] = fd.DataTypeOID
+	// Clean up the prepared statement when done
+	defer func() {
+		// Ignore errors during cleanup as the connection might be in an error state
+		_, _ = conn.Conn().Exec(ctx, "DEALLOCATE "+stmtName)
+	}()
+
+	if len(sd.Fields) == 0 {
+		return nil, nil, fmt.Errorf("query returned no columns - ensure your SELECT statement includes column selections (not just side effects like INSERT/UPDATE/DELETE)")
+	}
+
+	// Create column info and OID list from prepared statement description
+	columns := make([]ColumnInfo, len(sd.Fields))
+	fieldOIDs := make([]uint32, len(sd.Fields))
+	for i, field := range sd.Fields {
+		columns[i] = ColumnInfo{Name: field.Name, OID: field.DataTypeOID}
+		fieldOIDs[i] = field.DataTypeOID
 	}
 
 	schema, err := CreateSchema(columns)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create Arrow schema: %w", err)
+		return nil, nil, &SchemaError{
+			Columns: columns,
+			Err:     err,
+		}
 	}
 
 	return schema, fieldOIDs, nil
@@ -182,7 +225,7 @@ func (p *Pool) executeCopyAndParse(ctx context.Context, conn *pgxpool.Conn, sql 
 	}()
 
 	// Create RecordReader with connection lifecycle management
-	reader, err := newRecordReader(schema, fieldOIDs, memory.DefaultAllocator, conn, pipeReader, copyDone)
+	reader, err := newRecordReader(schema, fieldOIDs, p.allocator, conn, pipeReader, copyDone)
 	if err != nil {
 		return nil, err
 	}

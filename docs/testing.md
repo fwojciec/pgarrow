@@ -91,6 +91,46 @@ connStrWithSchema := fmt.Sprintf("%s&search_path=%s,public", baseConnStr, schema
 pool, err := pgarrow.NewPool(ctx, connStrWithSchema)
 ```
 
+### Memory Safety with CheckedAllocator
+
+PGArrow tests use Arrow's `CheckedAllocator` to detect memory leaks and ensure proper resource cleanup. This is critical for catching memory management issues in Arrow record processing.
+
+**Proper Usage Pattern:**
+```go
+func TestYourFunction(t *testing.T) {
+    t.Parallel()
+
+    // Create checked allocator for memory leak detection
+    alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+    defer alloc.AssertSize(t, 0) // Will fail test if memory leaked
+
+    // Use setupTestDBWithAllocator to ensure Pool uses the checked allocator
+    pool, cleanup := setupTestDBWithAllocator(t, alloc)
+    defer cleanup()
+
+    // Your test logic here...
+    reader, err := pool.QueryArrow(ctx, "SELECT * FROM test_table")
+    require.NoError(t, err)
+    defer reader.Release() // Critical: always release Arrow resources
+
+    // Process records...
+    for reader.Next() {
+        record := reader.Record()
+        // Use record...
+        // record.Release() is handled automatically by reader
+    }
+}
+```
+
+**Common Memory Leak Causes:**
+- Forgetting to call `reader.Release()`
+- Not releasing Arrow records when manually creating them
+- Using `setupTestDB()` instead of `setupTestDBWithAllocator()` (allocator mismatch)
+
+**Helper Functions:**
+- `setupTestDBWithAllocator(t, alloc)`: Creates pool with custom allocator for proper tracking
+- `setupTestDB(t)`: Creates pool with default allocator (use only when not testing memory)
+
 ### Environment Variables
 
 - `TEST_DATABASE_URL`: PostgreSQL connection string for tests
@@ -114,6 +154,43 @@ integration_test.go             # Main table-based integration tests
 pgarrow_bench_test.go           # Performance benchmarks  
 types_bench_test.go             # Type-specific benchmarks
 ```
+
+### Metadata Discovery Strategy
+
+PGArrow uses PostgreSQL's **PREPARE statement** for efficient metadata discovery, matching the approach used by pgx internally.
+
+**Efficient Implementation**: 
+
+We discovered that `pgxpool.Conn` provides access to the underlying `*pgx.Conn` through the `Conn()` method, which has a `Prepare()` method that efficiently gets field descriptions without executing the query:
+
+```go
+// Generate unique statement name to avoid collisions
+stmtName := fmt.Sprintf("pgarrow_meta_%p", conn)
+
+// Use PREPARE to get metadata without executing the query
+sd, err := conn.Conn().Prepare(ctx, stmtName, sql)
+if err != nil {
+    return nil, nil, fmt.Errorf("failed to prepare statement: %w", err)
+}
+
+// Clean up prepared statement
+defer func() {
+    _, _ = conn.Conn().Exec(ctx, "DEALLOCATE "+stmtName)
+}()
+
+// Use field descriptions from prepared statement
+for i, field := range sd.Fields {
+    columns[i] = ColumnInfo{Name: field.Name, OID: field.DataTypeOID}
+}
+```
+
+**Why This Works**: The `conn.Conn().Prepare()` method uses pgx's internal `pgConn.Prepare()` functionality, providing the same efficiency as pgx's own query execution modes while being available through the public API.
+
+**Benefits**: 
+- No query execution required for metadata discovery
+- Compatible with all SQL query structures that PostgreSQL can prepare
+- Matches pgx's internal efficiency patterns
+- Maintains connection pool compatibility
 
 ### Adding New Test Cases
 
