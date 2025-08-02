@@ -52,8 +52,6 @@ func main() {
 		return
 	}
 
-	// Demonstrate nullability discovery configuration
-
 	fmt.Println("\nPGArrow types example completed successfully!")
 }
 
