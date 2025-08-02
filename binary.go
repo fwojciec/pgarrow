@@ -8,20 +8,22 @@ import (
 
 const (
 	// PostgreSQL type OIDs for Phase 1 support
-	TypeOIDBool    = 16
-	TypeOIDBytea   = 17
-	TypeOIDName    = 19
-	TypeOIDInt8    = 20
-	TypeOIDInt2    = 21
-	TypeOIDInt4    = 23
-	TypeOIDText    = 25
-	TypeOIDFloat4  = 700
-	TypeOIDFloat8  = 701
-	TypeOIDBpchar  = 1042
-	TypeOIDVarchar = 1043
-	TypeOIDChar    = 18
-	TypeOIDDate    = 1082
-	TypeOIDTime    = 1083
+	TypeOIDBool        = 16
+	TypeOIDBytea       = 17
+	TypeOIDName        = 19
+	TypeOIDInt8        = 20
+	TypeOIDInt2        = 21
+	TypeOIDInt4        = 23
+	TypeOIDText        = 25
+	TypeOIDFloat4      = 700
+	TypeOIDFloat8      = 701
+	TypeOIDBpchar      = 1042
+	TypeOIDVarchar     = 1043
+	TypeOIDChar        = 18
+	TypeOIDDate        = 1082
+	TypeOIDTime        = 1083
+	TypeOIDTimestamp   = 1114
+	TypeOIDTimestamptz = 1184
 )
 
 // Parser parses PostgreSQL COPY binary format data
@@ -194,7 +196,7 @@ func (p *Parser) parseFieldData(data []byte, oid uint32) any {
 		return string(data)
 
 	default:
-		// For primitive types (bool, int, float, date, time), return raw bytes
+		// For primitive types (bool, int, float, date, time, timestamp), return raw bytes
 		// TypeHandler will do the conversion
 		return data
 	}

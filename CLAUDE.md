@@ -1,112 +1,48 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Strategic guidance for LLMs working with this codebase.
 
-## Project Overview
+## Why This Codebase Exists
 
-PGArrow is a pure Go library that provides ADBC-like functionality for converting PostgreSQL query results directly to Apache Arrow format, without CGO dependencies. The project addresses scalability issues in ADBC where connection initialization takes 6-8 seconds for databases with 20k+ tables due to upfront metadata loading.
+**Core Problem**: PostgreSQL → Arrow conversion typically requires either CGO dependencies, expensive metadata preloading that doesn't scale with large schemas, or ad-hoc per-query connections that can't support high-performance query systems.
 
-**Key Benefits:**
-- Instant connections (no metadata preloading)
-- Zero CGO dependencies (pure Go)
-- High performance (direct binary format conversion)
-- pgx compatibility (uses pgxpool for connection management)
+**Design Philosophy**: 
+- **Separation of concerns** - metadata discovery, streaming, and conversion are distinct phases
+- **Lazy evaluation** - compute only what's needed, when it's needed
+- **Zero-copy where possible** - minimize allocations and data movement
+- **Connection pooling** - designed for high-performance systems with many queries
+- **Fail-fast validation** - comprehensive testing catches errors early in development cycle and serves as robust regression suite
 
-## Commands
+**Quality Philosophy**: **Process over polish** - systematic validation results in quality rather than fixing issues post-hoc.
 
-### Validation (ALWAYS RUN THIS)
+## Quality-First Development
+
+**Feedback Loops**: TDD → Systematic Validation → Continuous Integration → Performance Baselines
+
+## Architecture Patterns
+
+**Data Flow**: `PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches`
+
+**Essential Patterns**:
+- Consistent signed/unsigned conversion: `int64(binary.BigEndian.Uint64(data))`
+- Parallel-safe testing: `t.Parallel()` + race detection
+- Public API testing: `*_test` packages ensure tests use public interface only
+- Memory safety: checked allocators + proper resource cleanup
+- PostgreSQL schema isolation: unique schemas per test enable safe concurrent execution
+
+## Essential Commands
+
 ```bash
-make validate                   # Run all validation checks (format, vet, lint, test)
+make validate  # Complete quality gate - run before completing any task
 ```
 
-**IMPORTANT**: Always run `make validate` before completing any task. This is the single command that ensures code quality.
+## Reference Documentation
 
-### Other Commands
-```bash
-go test ./...                   # Run all tests
-go test -v ./...                # Run tests with verbose output
-go test -race ./...             # Run tests with race detector
-go test -cover ./...            # Run tests with coverage
-golangci-lint run              # Run linter (installed via tools.go)
-golangci-lint run --fix        # Run linter and auto-fix issues
-go build ./...                 # Build all packages
-go mod tidy                    # Clean up dependencies
-go mod download                # Download dependencies
-```
+- `docs/testing.md` - Testing strategy and patterns
+- `docs/benchmarks.md` - Performance analysis  
+- `docs/postgresql-binary-format-reference.md` - Binary format spec
+- `.claude/commands/` - Specialized workflows
 
-## Architecture
+## File Structure
 
-### Core Components
-
-1. **Connection Management** (`pgarrow.go`)
-   - `Pool` struct wraps `pgxpool.Pool`
-   - Provides `QueryArrow()` method for executing queries
-
-2. **Binary Format Parser** (planned in `binary.go`)
-   - Parses PostgreSQL COPY TO BINARY format
-   - Handles network byte order conversion
-   - Supports NULL value detection
-
-3. **Type System** (planned in `types.go`)
-   - Maps PostgreSQL OIDs to Arrow types
-   - Extensible type handler interface
-   - Built-in support for common types (int2, int4, int8, float4, float8, bool, text)
-
-4. **Arrow Builder** (planned in `arrow.go`)
-   - Converts parsed data to Arrow records
-   - Memory-efficient record building
-   - Schema generation from query metadata
-
-### Data Flow
-```
-PostgreSQL → COPY TO BINARY → Binary Parser → Type Handlers → Arrow Record
-```
-
-### File Structure
-- All implementation files in root directory
-- All test files in root directory with `_test.go` suffix
-- Documentation in `docs/` directory
-- Binary test samples in `testdata/` (when created)
-
-## Testing Strategy
-
-The project uses Test-Driven Development (TDD) with comprehensive integration testing:
-
-- **Integration Tests**: Real PostgreSQL testing with schema isolation (primary approach)
-- **Unit Tests**: Minimal tests for edge cases and component isolation
-- **Test Framework**: `github.com/stretchr/testify` for assertions
-- **Database Testing**: Uses `TEST_DATABASE_URL` pattern with automatic test skipping
-
-**Detailed testing setup and guidelines**: See `docs/testing.md`
-
-### Testing Guidelines
-
-- **Test Packages**: All tests must use `*_test` package naming (e.g., `pgarrow_test`)
-- **Parallel Execution**: All tests must call `t.Parallel()` for concurrent execution
-- **Memory Safety**: Arrow tests must use `memory.NewCheckedAllocator()` with `t.Cleanup(func() { alloc.AssertSize(t, 0) })`
-- **Resource Management**: Proper `defer record.Release()` and `defer builder.Release()` patterns
-- **Error Assertions**: Use `require.Error()` for error checks, `assert.Error()` for non-critical validations
-- **Integration Testing**: Uses schema isolation with unique schema names per test for safe parallel execution
-
-## Key Dependencies
-
-- `github.com/apache/arrow-go/v18` - Apache Arrow Go implementation
-- `github.com/jackc/pgx/v5` - PostgreSQL driver and toolkit
-- `github.com/golangci/golangci-lint` - Comprehensive Go linter
-- `github.com/stretchr/testify` - Testing framework (for tests)
-
-## Development Notes
-
-- Go version: 1.24.5 (as specified in go.mod)
-- All code should be in root package `pgarrow`
-- Follow PostgreSQL binary format specification in docs/
-- Target Phase 1 data types: bool, int2, int4, int8, float4, float8, text, varchar, bpchar, name, char
-- Connection speed target: <100ms (vs 6-8s for ADBC)
-- **VALIDATION REQUIREMENT**: Always run `make validate` before completing any task - this is the single source of truth for code quality
-
-## LLM Development Guidelines
-
-- **Before completing any task**: Run `make validate` and ensure it passes
-- **After making any code changes**: Run `make validate` to verify the changes don't break anything
-- **For reliable results**: Use `make validate` as the definitive validation command - it runs the same checks as CI
-- **If `make validate` fails**: Fix all issues before proceeding or completing the task
+Root package `pgarrow` with `*_test.go` tests, `examples/`, and `docs/`.
