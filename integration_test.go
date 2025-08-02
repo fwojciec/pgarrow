@@ -1444,6 +1444,139 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			},
 		},
 		{
+			name:         "bytea_basic_values",
+			setupSQL:     `CREATE TABLE test_bytea (val bytea); INSERT INTO test_bytea VALUES (E'\\x48656c6c6f20576f726c64'), (E'\\x'), (E'\\x00FF00FF'), (null);`,
+			querySQL:     "SELECT * FROM test_bytea ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				byteaCol, ok := record.Column(0).(*array.Binary)
+				require.True(t, ok)
+
+				values := make([][]byte, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !byteaCol.IsNull(i) {
+						values = append(values, byteaCol.Value(i))
+					}
+				}
+
+				// Check for expected values
+				foundEmpty := false
+				foundHello := false
+				foundPattern := false
+				for _, val := range values {
+					if len(val) == 0 {
+						foundEmpty = true
+					} else if string(val) == "Hello World" {
+						foundHello = true
+					} else if len(val) == 4 && val[0] == 0x00 && val[1] == 0xFF && val[2] == 0x00 && val[3] == 0xFF {
+						foundPattern = true
+					}
+				}
+
+				assert.True(t, foundEmpty, "Should find empty bytea")
+				assert.True(t, foundHello, "Should find 'Hello World' bytea")
+				assert.True(t, foundPattern, "Should find 0x00FF00FF pattern")
+				assert.True(t, byteaCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name:         "bytea_special_bytes",
+			setupSQL:     `CREATE TABLE test_bytea_special (val bytea); INSERT INTO test_bytea_special VALUES (E'\\x0001020304050607080910111213141516171819'), (E'\\xFFFFFFFF'), (E'\\x000000'), (null);`,
+			querySQL:     "SELECT * FROM test_bytea_special ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				byteaCol, ok := record.Column(0).(*array.Binary)
+				require.True(t, ok)
+
+				values := make([][]byte, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !byteaCol.IsNull(i) {
+						values = append(values, byteaCol.Value(i))
+					}
+				}
+
+				// Check for expected patterns
+				foundZeros := false
+				foundFFs := false
+				foundSequence := false
+				for _, val := range values {
+					if len(val) == 3 && val[0] == 0x00 && val[1] == 0x00 && val[2] == 0x00 {
+						foundZeros = true
+					} else if len(val) == 4 && val[0] == 0xFF && val[1] == 0xFF && val[2] == 0xFF && val[3] == 0xFF {
+						foundFFs = true
+					} else if len(val) == 20 && val[0] == 0x00 && val[1] == 0x01 && val[19] == 0x19 {
+						// Check the sequential bytes pattern: 00 01 02 03 ... 19 (20 bytes total)
+						foundSequence = true
+					}
+				}
+
+				assert.True(t, foundZeros, "Should find zero bytes pattern")
+				assert.True(t, foundFFs, "Should find 0xFF bytes pattern")
+				assert.True(t, foundSequence, "Should find sequential bytes pattern")
+				assert.True(t, byteaCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name: "mixed_types_with_bytea",
+			setupSQL: `CREATE TABLE test_mixed_bytea (
+						id int4, 
+						name text, 
+						data bytea, 
+						active bool
+					   ); 
+					   INSERT INTO test_mixed_bytea VALUES 
+					   (1, 'first', E'\\x48656c6c6f', true),
+					   (2, 'second', E'\\x', false),
+					   (3, 'third', null, true);`,
+			querySQL:     "SELECT * FROM test_mixed_bytea ORDER BY id",
+			args:         nil,
+			expectedRows: 3,
+			expectedCols: 4,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				// Verify schema
+				schema := record.Schema()
+				assert.Equal(t, "id", schema.Field(0).Name)
+				assert.Equal(t, "name", schema.Field(1).Name)
+				assert.Equal(t, "data", schema.Field(2).Name)
+				assert.Equal(t, "active", schema.Field(3).Name)
+
+				// Extract columns
+				idCol, ok := record.Column(0).(*array.Int32)
+				require.True(t, ok)
+				nameCol, ok := record.Column(1).(*array.String)
+				require.True(t, ok)
+				dataCol, ok := record.Column(2).(*array.Binary)
+				require.True(t, ok)
+				activeCol, ok := record.Column(3).(*array.Boolean)
+				require.True(t, ok)
+
+				// Verify data for each row
+				for i := range int(record.NumRows()) {
+					switch idCol.Value(i) {
+					case 1: // First row
+						assert.Equal(t, "first", nameCol.Value(i))
+						assert.Equal(t, "Hello", string(dataCol.Value(i)))
+						assert.True(t, activeCol.Value(i))
+					case 2: // Second row
+						assert.Equal(t, "second", nameCol.Value(i))
+						assert.Empty(t, dataCol.Value(i)) // Empty bytea
+						assert.False(t, activeCol.Value(i))
+					case 3: // Third row
+						assert.Equal(t, "third", nameCol.Value(i))
+						assert.True(t, dataCol.IsNull(i)) // NULL bytea
+						assert.True(t, activeCol.Value(i))
+					}
+				}
+			},
+		},
+		{
 			name: "mixed_string_types",
 			setupSQL: `CREATE TABLE test_mixed_strings (
 						id int4, 
