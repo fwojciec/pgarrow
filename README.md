@@ -147,6 +147,9 @@ While developed with rigorous quality processes, this software should be conside
 - Alpha quality - production validation needed
 - Limited to 17 PostgreSQL types currently
 
+**🎯 Design decisions:**
+- **All columns marked nullable**: Arrow schema always shows `nullable=true` regardless of PostgreSQL `NOT NULL` constraints, optimizing for performance and compatibility with major Arrow engines (DuckDB, DataFusion, Polars) that ignore nullability metadata anyway ([research details](docs/nullability-tradeoff-research.md))
+
 ---
 
 **Questions?** [Open an issue](../../issues) • **Contributing:** See [CLAUDE.md](CLAUDE.md)

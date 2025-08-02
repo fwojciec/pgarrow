@@ -147,6 +147,12 @@ func setupTestDB(t *testing.T) (*pgarrow.Pool, func()) {
 // This ensures proper memory tracking during tests
 func setupTestDBWithAllocator(t *testing.T, alloc memory.Allocator) (*pgarrow.Pool, func()) {
 	t.Helper()
+	return setupTestDBWithOptions(t, pgarrow.WithAllocator(alloc))
+}
+
+// setupTestDBWithOptions creates a test database with custom options
+func setupTestDBWithOptions(t *testing.T, opts ...pgarrow.Option) (*pgarrow.Pool, func()) {
+	t.Helper()
 
 	// Get database URL from environment
 	databaseURL := getTestDatabaseURL(t)
@@ -170,8 +176,8 @@ func setupTestDBWithAllocator(t *testing.T, alloc memory.Allocator) (*pgarrow.Po
 	connConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s,public", schemaName)
 	connStr := connConfig.ConnString()
 
-	// Create pgarrow Pool with the schema-specific connection and custom allocator
-	pool, err := pgarrow.NewPool(context.Background(), connStr, pgarrow.WithAllocator(alloc))
+	// Create pgarrow Pool with the schema-specific connection and provided options
+	pool, err := pgarrow.NewPool(context.Background(), connStr, opts...)
 	require.NoError(t, err, "should create pgarrow pool")
 
 	// Create test tables in the schema
