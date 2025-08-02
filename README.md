@@ -73,7 +73,7 @@ func main() {
 
 ## Supported Data Types
 
-PGArrow supports 7 core PostgreSQL data types with direct Arrow format conversion:
+PGArrow supports 11 PostgreSQL data types with direct Arrow format conversion:
 
 | PostgreSQL Type | PostgreSQL OID | Arrow Type | Go Type |
 |----------------|---------------|------------|---------|
@@ -84,6 +84,10 @@ PGArrow supports 7 core PostgreSQL data types with direct Arrow format conversio
 | `float4` / `real` | 700 | `Float32` | `float32` |
 | `float8` / `double precision` | 701 | `Float64` | `float64` |
 | `text` | 25 | `String` | `string` |
+| `varchar` | 1043 | `String` | `string` |
+| `bpchar` / `char(n)` | 1042 | `String` | `string` |
+| `name` | 19 | `String` | `string` |
+| `"char"` | 18 | `String` | `string` |
 
 ### NULL Value Handling
 
@@ -149,7 +153,7 @@ PostgreSQL → COPY TO BINARY → Binary Parser → Type Handlers → Arrow Reco
 
 1. **Pool**: Connection management using pgxpool with lazy metadata loading
 2. **RecordReader**: Streaming interface implementing `array.RecordReader` with proper reference counting
-3. **Binary Parser**: PostgreSQL binary format decoder with support for all 7 data types  
+3. **Binary Parser**: PostgreSQL binary format decoder with support for all 11 data types  
 4. **Type System**: OID-based type handlers with direct Arrow conversion
 5. **Record Builder**: Arrow record construction with proper memory management and DuckDB-optimized batching (128,800 rows)
 
@@ -164,7 +168,7 @@ PostgreSQL → COPY TO BINARY → Binary Parser → Type Handlers → Arrow Reco
 
 PGArrow is currently in active development. The core functionality is implemented and working:
 
-- ✅ All 7 supported data types
+- ✅ All 11 supported data types
 - ✅ NULL value handling  
 - ✅ Connection pooling with lazy metadata loading
 - ✅ Binary format parsing
@@ -178,4 +182,4 @@ PGArrow is currently in active development. The core functionality is implemente
 ## Known Limitations
 
 - **Parameterized Queries**: PGArrow does not support parameterized queries ($1, $2, etc.) due to PostgreSQL's COPY TO BINARY protocol limitations. Use literal values in your SQL queries instead.
-- **Limited Data Types**: Currently supports 7 PostgreSQL data types. Additional types can be added as needed.
+- **Limited Data Types**: Currently supports 11 PostgreSQL data types. Additional types can be added as needed.

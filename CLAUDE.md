@@ -14,25 +14,24 @@ PGArrow is a pure Go library that provides ADBC-like functionality for convertin
 
 ## Commands
 
-### Testing
+### Validation (ALWAYS RUN THIS)
 ```bash
-go test ./...                    # Run all tests
-go test -v ./...                 # Run tests with verbose output
-go test -race ./...              # Run tests with race detector
-go test -cover ./...             # Run tests with coverage
+make validate                   # Run all validation checks (format, vet, lint, test)
 ```
 
-### Linting
-```bash
-golangci-lint run               # Run linter (installed via tools.go)
-golangci-lint run --fix         # Run linter and auto-fix issues
-```
+**IMPORTANT**: Always run `make validate` before completing any task. This is the single command that ensures code quality.
 
-### Build
+### Other Commands
 ```bash
-go build ./...                  # Build all packages
-go mod tidy                     # Clean up dependencies
-go mod download                 # Download dependencies
+go test ./...                   # Run all tests
+go test -v ./...                # Run tests with verbose output
+go test -race ./...             # Run tests with race detector
+go test -cover ./...            # Run tests with coverage
+golangci-lint run              # Run linter (installed via tools.go)
+golangci-lint run --fix        # Run linter and auto-fix issues
+go build ./...                 # Build all packages
+go mod tidy                    # Clean up dependencies
+go mod download                # Download dependencies
 ```
 
 ## Architecture
@@ -101,6 +100,13 @@ The project uses Test-Driven Development (TDD) with comprehensive integration te
 - Go version: 1.24.5 (as specified in go.mod)
 - All code should be in root package `pgarrow`
 - Follow PostgreSQL binary format specification in docs/
-- Target Phase 1 data types: bool, int2, int4, int8, float4, float8, text
+- Target Phase 1 data types: bool, int2, int4, int8, float4, float8, text, varchar, bpchar, name, char
 - Connection speed target: <100ms (vs 6-8s for ADBC)
-- Current status: Early development (basic Pool structure implemented)
+- **VALIDATION REQUIREMENT**: Always run `make validate` before completing any task - this is the single source of truth for code quality
+
+## LLM Development Guidelines
+
+- **Before completing any task**: Run `make validate` and ensure it passes
+- **After making any code changes**: Run `make validate` to verify the changes don't break anything
+- **For reliable results**: Use `make validate` as the definitive validation command - it runs the same checks as CI
+- **If `make validate` fails**: Fix all issues before proceeding or completing the task

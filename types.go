@@ -32,7 +32,7 @@ func NewRegistry() *TypeRegistry {
 		handlers: make(map[uint32]TypeHandler),
 	}
 
-	// Register all 7 basic types
+	// Register all basic types
 	registry.register(&BoolType{})
 	registry.register(&Int2Type{})
 	registry.register(&Int4Type{})
@@ -40,6 +40,10 @@ func NewRegistry() *TypeRegistry {
 	registry.register(&Float4Type{})
 	registry.register(&Float8Type{})
 	registry.register(&TextType{})
+	registry.register(&VarcharType{})
+	registry.register(&BpcharType{})
+	registry.register(&NameType{})
+	registry.register(&CharType{})
 
 	return registry
 }
@@ -246,6 +250,94 @@ func (t *TextType) ArrowType() arrow.DataType {
 }
 
 func (t *TextType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+	return string(data), nil
+}
+
+// VarcharType handles PostgreSQL varchar type (OID 1043)
+type VarcharType struct{}
+
+func (t *VarcharType) OID() uint32 {
+	return TypeOIDVarchar
+}
+
+func (t *VarcharType) Name() string {
+	return "varchar"
+}
+
+func (t *VarcharType) ArrowType() arrow.DataType {
+	return arrow.BinaryTypes.String
+}
+
+func (t *VarcharType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+	return string(data), nil
+}
+
+// BpcharType handles PostgreSQL bpchar type (OID 1042)
+type BpcharType struct{}
+
+func (t *BpcharType) OID() uint32 {
+	return TypeOIDBpchar
+}
+
+func (t *BpcharType) Name() string {
+	return "bpchar"
+}
+
+func (t *BpcharType) ArrowType() arrow.DataType {
+	return arrow.BinaryTypes.String
+}
+
+func (t *BpcharType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+	return string(data), nil
+}
+
+// NameType handles PostgreSQL name type (OID 19)
+type NameType struct{}
+
+func (t *NameType) OID() uint32 {
+	return TypeOIDName
+}
+
+func (t *NameType) Name() string {
+	return "name"
+}
+
+func (t *NameType) ArrowType() arrow.DataType {
+	return arrow.BinaryTypes.String
+}
+
+func (t *NameType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+	return string(data), nil
+}
+
+// CharType handles PostgreSQL char type (OID 18)
+type CharType struct{}
+
+func (t *CharType) OID() uint32 {
+	return TypeOIDChar
+}
+
+func (t *CharType) Name() string {
+	return "char"
+}
+
+func (t *CharType) ArrowType() arrow.DataType {
+	return arrow.BinaryTypes.String
+}
+
+func (t *CharType) Parse(data []byte) (any, error) {
 	if len(data) == 0 {
 		return nil, nil // NULL value
 	}
