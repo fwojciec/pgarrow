@@ -1030,6 +1030,111 @@ func TestNewPoolFromExisting(t *testing.T) {
 	require.NoError(t, reader2.Err(), "count reader should not have errors")
 }
 
+// TestPoolOwnershipBehavior tests the Pool ownership behavior between NewPool and NewPoolFromExisting
+func TestPoolOwnershipBehavior(t *testing.T) {
+	t.Parallel()
+
+	databaseURL := getTestDatabaseURL(t)
+	ctx := context.Background()
+
+	t.Run("NewPool owns underlying pgxpool", func(t *testing.T) {
+		t.Parallel()
+		// Create Pool using NewPool - it should own the underlying pgxpool
+		pool, err := pgarrow.NewPool(ctx, databaseURL)
+		require.NoError(t, err)
+
+		// Verify we can execute a query before closing
+		reader, err := pool.QueryArrow(ctx, "SELECT 1 as test")
+		require.NoError(t, err)
+		reader.Release()
+
+		// Close the pgarrow Pool - this should close the underlying pgxpool since it owns it
+		pool.Close()
+
+		// Attempting to use the pool after Close() should fail since the underlying pgxpool is closed
+		reader, err = pool.QueryArrow(ctx, "SELECT 1 as test")
+		require.Error(t, err, "should fail after Close() since underlying pgxpool is closed")
+		assert.Nil(t, reader)
+	})
+
+	t.Run("NewPoolFromExisting does not own underlying pgxpool", func(t *testing.T) {
+		t.Parallel()
+		// Create pgxpool directly
+		pgxPool, err := pgxpool.New(ctx, databaseURL)
+		require.NoError(t, err)
+		defer pgxPool.Close() // We manage this lifecycle
+
+		// Create pgarrow Pool from existing pgxpool - it should NOT own the underlying pgxpool
+		pgarrowPool := pgarrow.NewPoolFromExisting(pgxPool)
+
+		// Verify we can execute a query before calling Close()
+		reader, err := pgarrowPool.QueryArrow(ctx, "SELECT 1 as test")
+		require.NoError(t, err)
+		reader.Release()
+
+		// Call Close() on pgarrow Pool - this should be a no-op and NOT close the underlying pgxpool
+		pgarrowPool.Close()
+
+		// The underlying pgxpool should still be usable since pgarrowPool.Close() didn't close it
+		reader, err = pgarrowPool.QueryArrow(ctx, "SELECT 1 as test")
+		require.NoError(t, err, "should still work after pgarrowPool.Close() since underlying pgxpool is not closed")
+		reader.Release()
+
+		// Verify the pgxpool is still functional directly
+		pgxConn, err := pgxPool.Acquire(ctx)
+		require.NoError(t, err, "pgxpool should still be functional")
+		pgxConn.Release()
+	})
+
+	t.Run("multiple Close calls are safe", func(t *testing.T) {
+		t.Parallel()
+		// Test NewPool case
+		pool, err := pgarrow.NewPool(ctx, databaseURL)
+		require.NoError(t, err)
+
+		// Multiple Close() calls should be safe
+		pool.Close()
+		pool.Close() // Should not panic or error
+		pool.Close() // Should not panic or error
+
+		// Test NewPoolFromExisting case
+		pgxPool, err := pgxpool.New(ctx, databaseURL)
+		require.NoError(t, err)
+		defer pgxPool.Close()
+
+		pgarrowPool := pgarrow.NewPoolFromExisting(pgxPool)
+
+		// Multiple Close() calls should be safe (and no-ops)
+		pgarrowPool.Close()
+		pgarrowPool.Close() // Should not panic or error
+		pgarrowPool.Close() // Should not panic or error
+
+		// Verify pgxpool is still functional
+		pgxConn, err := pgxPool.Acquire(ctx)
+		require.NoError(t, err)
+		pgxConn.Release()
+	})
+
+	t.Run("nil pool safety", func(t *testing.T) {
+		t.Parallel()
+		// Test that NewPoolFromExisting with nil doesn't panic on Close()
+		// This is defensive programming - while passing nil is a programmer error,
+		// Close() should not panic
+		pgarrowPool := pgarrow.NewPoolFromExisting(nil)
+
+		// This should not panic even though pool is nil
+		assert.NotPanics(t, func() {
+			pgarrowPool.Close()
+		}, "Close() should not panic even with nil pool")
+
+		// Multiple calls should also be safe
+		assert.NotPanics(t, func() {
+			pgarrowPool.Close()
+			pgarrowPool.Close()
+		}, "Multiple Close() calls should not panic with nil pool")
+	})
+}
+
 // TestTimestampTypesBasicIntegration tests basic timestamp functionality - DISABLED due to PostgreSQL type promotion
 func TestTimestampTypesIntegration(t *testing.T) {
 	t.Parallel()
