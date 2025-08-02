@@ -1523,6 +1523,143 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			},
 		},
 		{
+			name:         "date_edge_cases",
+			setupSQL:     `CREATE TABLE test_date (val date); INSERT INTO test_date VALUES ('2000-01-01'::date), ('1970-01-01'::date), ('2024-12-31'::date), ('1999-12-31'::date), (null);`,
+			querySQL:     "SELECT * FROM test_date ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 5,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				dateCol, ok := record.Column(0).(*array.Date32)
+				require.True(t, ok)
+
+				values := make([]int32, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !dateCol.IsNull(i) {
+						values = append(values, int32(dateCol.Value(i)))
+					}
+				}
+
+				// Check for expected values
+				// 1970-01-01 should be 0 (Arrow epoch)
+				// 2000-01-01 should be 10957 (PostgreSQL epoch + adjustment)
+				foundArrowEpoch := false
+				foundPgEpoch := false
+				for _, val := range values {
+					switch val {
+					case 0:
+						foundArrowEpoch = true // 1970-01-01
+					case 10957:
+						foundPgEpoch = true // 2000-01-01
+					}
+				}
+
+				assert.True(t, foundArrowEpoch, "Should find Arrow epoch date (1970-01-01)")
+				assert.True(t, foundPgEpoch, "Should find PostgreSQL epoch date (2000-01-01)")
+				assert.Len(t, values, 4, "Should have 4 non-NULL date values")
+				assert.True(t, dateCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name:         "time_edge_cases",
+			setupSQL:     `CREATE TABLE test_time (val time); INSERT INTO test_time VALUES ('00:00:00'::time), ('23:59:59.999999'::time), ('12:30:45.123456'::time), ('06:15:30'::time), (null);`,
+			querySQL:     "SELECT * FROM test_time ORDER BY val NULLS LAST",
+			args:         nil,
+			expectedRows: 5,
+			expectedCols: 1,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				timeCol, ok := record.Column(0).(*array.Time64)
+				require.True(t, ok)
+
+				values := make([]int64, 0)
+				for i := 0; i < int(record.NumRows()); i++ {
+					if !timeCol.IsNull(i) {
+						values = append(values, int64(timeCol.Value(i)))
+					}
+				}
+
+				// Check for expected values
+				foundMidnight := false
+				foundEndOfDay := false
+				for _, val := range values {
+					switch {
+					case val == 0:
+						foundMidnight = true // 00:00:00
+					case val >= 86399999999: // Close to 23:59:59.999999
+						foundEndOfDay = true
+					}
+				}
+
+				assert.True(t, foundMidnight, "Should find midnight time (00:00:00)")
+				assert.True(t, foundEndOfDay, "Should find end-of-day time")
+				assert.Len(t, values, 4, "Should have 4 non-NULL time values")
+				assert.True(t, timeCol.IsNull(int(record.NumRows())-1)) // Last should be NULL
+			},
+		},
+		{
+			name: "mixed_temporal_types",
+			setupSQL: `CREATE TABLE test_mixed_temporal (
+						id int4, 
+						event_date date, 
+						event_time time,
+						description text
+					   ); 
+					   INSERT INTO test_mixed_temporal VALUES 
+					   (1, '2000-01-01'::date, '00:00:00'::time, 'millennium'),
+					   (2, '1970-01-01'::date, '12:30:45'::time, 'unix epoch'),
+					   (3, '2024-12-31'::date, '23:59:59.999999'::time, 'year end'),
+					   (4, null, null, 'nulls');`,
+			querySQL:     "SELECT * FROM test_mixed_temporal ORDER BY id",
+			args:         nil,
+			expectedRows: 4,
+			expectedCols: 4,
+			validateFunc: func(t *testing.T, record arrow.Record) {
+				t.Helper()
+				// Verify schema
+				schema := record.Schema()
+				assert.Equal(t, "id", schema.Field(0).Name)
+				assert.Equal(t, "event_date", schema.Field(1).Name)
+				assert.Equal(t, "event_time", schema.Field(2).Name)
+				assert.Equal(t, "description", schema.Field(3).Name)
+
+				// Extract columns
+				idCol, ok := record.Column(0).(*array.Int32)
+				require.True(t, ok)
+				dateCol, ok := record.Column(1).(*array.Date32)
+				require.True(t, ok)
+				timeCol, ok := record.Column(2).(*array.Time64)
+				require.True(t, ok)
+				descCol, ok := record.Column(3).(*array.String)
+				require.True(t, ok)
+
+				// Verify data for each row
+				for i := range int(record.NumRows()) {
+					switch idCol.Value(i) {
+					case 1: // Millennium row
+						assert.Equal(t, "millennium", descCol.Value(i))
+						assert.Equal(t, int32(10957), int32(dateCol.Value(i))) // 2000-01-01
+						assert.Equal(t, int64(0), int64(timeCol.Value(i)))     // 00:00:00
+					case 2: // Unix epoch row
+						assert.Equal(t, "unix epoch", descCol.Value(i))
+						assert.Equal(t, int32(0), int32(dateCol.Value(i))) // 1970-01-01
+						// 12:30:45 = 12*3600 + 30*60 + 45 = 45045 seconds = 45045000000 microseconds
+						assert.Equal(t, int64(45045000000), int64(timeCol.Value(i)))
+					case 3: // Year end row
+						assert.Equal(t, "year end", descCol.Value(i))
+						// 2024-12-31 is 20088 days from 1970-01-01
+						assert.Greater(t, int32(dateCol.Value(i)), int32(19000))       // Should be around 20088
+						assert.Greater(t, int64(timeCol.Value(i)), int64(86399000000)) // Near end of day
+					case 4: // NULL row
+						assert.Equal(t, "nulls", descCol.Value(i))
+						assert.True(t, dateCol.IsNull(i))
+						assert.True(t, timeCol.IsNull(i))
+					}
+				}
+			},
+		},
+		{
 			name: "mixed_types_with_bytea",
 			setupSQL: `CREATE TABLE test_mixed_bytea (
 						id int4, 

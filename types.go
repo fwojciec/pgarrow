@@ -8,6 +8,11 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 )
 
+const (
+	// PostgreSQL epoch adjustment: days from 1970-01-01 to 2000-01-01
+	PostgresDateEpochDays = 10957
+)
+
 // TypeHandler defines the interface for PostgreSQL type handlers
 type TypeHandler interface {
 	// OID returns the PostgreSQL type OID
@@ -45,6 +50,8 @@ func NewRegistry() *TypeRegistry {
 	registry.register(&BpcharType{})
 	registry.register(&NameType{})
 	registry.register(&CharType{})
+	registry.register(&DateType{})
+	registry.register(&TimeType{})
 
 	return registry
 }
@@ -367,4 +374,63 @@ func (t *ByteaType) Parse(data []byte) (any, error) {
 	// Empty bytea (len(data) == 0) is valid - return the empty slice
 	// Data is returned as a reference to the original buffer (zero-copy); no additional copying is performed
 	return data, nil
+}
+
+// DateType handles PostgreSQL date type (OID 1082)
+type DateType struct{}
+
+func (t *DateType) OID() uint32 {
+	return TypeOIDDate
+}
+
+func (t *DateType) Name() string {
+	return "date"
+}
+
+func (t *DateType) ArrowType() arrow.DataType {
+	return arrow.PrimitiveTypes.Date32
+}
+
+func (t *DateType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+
+	if len(data) != 4 {
+		return nil, fmt.Errorf("invalid data length for date: expected 4, got %d", len(data))
+	}
+
+	pgDays := int32(binary.BigEndian.Uint32(data))
+	arrowDays := pgDays + PostgresDateEpochDays // Single addition operation
+	return arrowDays, nil
+}
+
+// TimeType handles PostgreSQL time type (OID 1083)
+type TimeType struct{}
+
+func (t *TimeType) OID() uint32 {
+	return TypeOIDTime
+}
+
+func (t *TimeType) Name() string {
+	return "time"
+}
+
+func (t *TimeType) ArrowType() arrow.DataType {
+	return arrow.FixedWidthTypes.Time64us
+}
+
+func (t *TimeType) Parse(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, nil // NULL value
+	}
+
+	if len(data) != 8 {
+		return nil, fmt.Errorf("invalid data length for time: expected 8, got %d", len(data))
+	}
+
+	// PostgreSQL time is stored as microseconds since midnight
+	// Arrow Time64[microsecond] also uses microseconds - direct conversion
+	timeMicros := int64(binary.BigEndian.Uint64(data))
+	return timeMicros, nil
 }
