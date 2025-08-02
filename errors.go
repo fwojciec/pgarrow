@@ -11,7 +11,11 @@ type QueryError struct {
 }
 
 func (e *QueryError) Error() string {
-	return fmt.Sprintf("query failed during %s: %v (SQL: %.100s...)", e.Operation, e.Err, e.SQL)
+	sql := e.SQL
+	if len(sql) > 100 {
+		sql = sql[:100] + "..."
+	}
+	return fmt.Sprintf("query failed during %s: %v (SQL: %s)", e.Operation, e.Err, sql)
 }
 
 func (e *QueryError) Unwrap() error {

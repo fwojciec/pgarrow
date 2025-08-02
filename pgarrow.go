@@ -30,7 +30,8 @@ type Pool struct {
 //   - "postgres://user:pass@localhost/dbname?pool_max_conns=10"
 //
 // The pool uses pgx internally for connection management and supports
-// all pgx connection parameters. Memory allocation uses the default Arrow allocator.
+// all pgx connection parameters. This is a convenience wrapper that uses the default
+// Arrow allocator - for custom memory management, use NewPoolWithAllocator instead.
 func NewPool(ctx context.Context, connString string) (*Pool, error) {
 	return NewPoolWithAllocator(ctx, connString, memory.DefaultAllocator)
 }
@@ -174,7 +175,7 @@ func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql str
 
 	sd, err := conn.Conn().Prepare(ctx, stmtName, sql)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to prepare statement for metadata discovery - invalid SQL syntax or unsupported query structure: %w", err)
+		return nil, nil, fmt.Errorf("failed to prepare statement for metadata discovery: %w", err)
 	}
 
 	// Clean up the prepared statement when done
@@ -184,7 +185,7 @@ func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql str
 	}()
 
 	if len(sd.Fields) == 0 {
-		return nil, nil, fmt.Errorf("query returned no columns - ensure your SELECT statement includes column selections (not just side effects like INSERT/UPDATE/DELETE)")
+		return nil, nil, fmt.Errorf("query returned no columns - Arrow conversion requires queries that return at least one column")
 	}
 
 	// Create column info and OID list from prepared statement description
