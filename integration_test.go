@@ -1178,7 +1178,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				hasNegInf := false
 				regularValues := []float32{}
 
-				for i := range int(record.NumRows()) - 1 { // -1 to skip NULL
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !float4Col.IsNull(i) {
 						val := float4Col.Value(i)
 						if val != val { // NaN check
@@ -1220,7 +1220,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				hasNegInf := false
 				regularValues := []float64{}
 
-				for i := range int(record.NumRows()) - 1 {
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !float8Col.IsNull(i) {
 						val := float8Col.Value(i)
 						if val != val { // NaN check
@@ -1264,7 +1264,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				require.True(t, ok)
 
 				values := make([]string, 0, record.NumRows()-1) // -1 for NULL
-				for i := range int(record.NumRows()) - 1 {
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !textCol.IsNull(i) {
 						values = append(values, textCol.Value(i))
 					}
@@ -1347,7 +1347,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				require.True(t, ok)
 
 				values := make([]string, 0)
-				for i := range int(record.NumRows()) - 1 { // -1 for NULL
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !varcharCol.IsNull(i) {
 						values = append(values, varcharCol.Value(i))
 					}
@@ -1372,7 +1372,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				require.True(t, ok)
 
 				values := make([]string, 0)
-				for i := range int(record.NumRows()) - 1 { // -1 for NULL
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !bpcharCol.IsNull(i) {
 						val := bpcharCol.Value(i)
 						values = append(values, val)
@@ -1404,7 +1404,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				require.True(t, ok)
 
 				values := make([]string, 0)
-				for i := range int(record.NumRows()) - 1 { // -1 for NULL
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !nameCol.IsNull(i) {
 						values = append(values, nameCol.Value(i))
 					}
@@ -1429,7 +1429,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 				require.True(t, ok)
 
 				values := make([]string, 0)
-				for i := range int(record.NumRows()) - 1 { // -1 for NULL
+				for i := 0; i < int(record.NumRows()); i++ {
 					if !charCol.IsNull(i) {
 						values = append(values, charCol.Value(i))
 					}
