@@ -11,11 +11,6 @@ import (
 	"github.com/fwojciec/pgarrow"
 )
 
-const (
-	// Default number of rows to use in benchmarks for consistent measurements
-	defaultBenchmarkRowCount = 1000
-)
-
 // Benchmark binary parsing and Arrow conversion for different data types
 
 func BenchmarkBinaryToArrow_Int4(b *testing.B) {
