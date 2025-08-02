@@ -212,7 +212,10 @@ func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql str
 	columns := make([]ColumnInfo, len(sd.Fields))
 	fieldOIDs := make([]uint32, len(sd.Fields))
 	for i, field := range sd.Fields {
-		columns[i] = ColumnInfo{Name: field.Name, OID: field.DataTypeOID}
+		columns[i] = ColumnInfo{
+			Name: field.Name,
+			OID:  field.DataTypeOID,
+		}
 		fieldOIDs[i] = field.DataTypeOID
 	}
 
