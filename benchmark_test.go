@@ -461,7 +461,7 @@ func generateDateData(count int) []byte {
 		// Generate PostgreSQL date values (days since 2000-01-01)
 		// Range from -10957 (1970-01-01) to +10957 (2030-01-01) for variety
 		pgDays := int32(i%21914 - 10957)
-		mustWrite(&buf, binary.BigEndian, uint32(pgDays))
+		mustWrite(&buf, binary.BigEndian, pgDays)
 	}
 
 	mustWrite(&buf, binary.BigEndian, int16(-1))
