@@ -53,27 +53,29 @@ These examples work with any PostgreSQL database and don't require specific tabl
 - `VALUES` clauses to create inline data
 - PostgreSQL type casting (e.g., `123::int2`)
 
-## 🔒 Safe Parameterized Queries
+## 📝 Literal SQL Design
 
-PGArrow supports **safe parameterized queries** with automatic SQL injection protection:
+PGArrow uses **literal SQL values** for optimal performance with the COPY BINARY protocol:
 
-✅ **Recommended approach:**
+✅ **Literal values approach:**
 ```go
-// Safe parameter interpolation with SQL injection protection
-record, err := pool.QueryArrow(ctx, "SELECT * FROM my_table WHERE id = $1", 123)
+// Use literal values directly in SQL for best performance
+record, err := pool.QueryArrow(ctx, "SELECT * FROM my_table WHERE id = 123")
 ```
 
-✅ **Multiple parameters:**
+✅ **Multiple conditions:**
 ```go
-// Multiple parameters are safely interpolated
-record, err := pool.QueryArrow(ctx, "SELECT * FROM users WHERE id = $1 AND name = $2", 123, "Alice")
+// Build SQL with literal values
+record, err := pool.QueryArrow(ctx, "SELECT * FROM users WHERE id = 123 AND name = 'Alice'")
 ```
 
-✅ **Literal SQL still works:**
+✅ **Inline data generation:**
 ```go  
-// Direct SQL without parameters
+// Use VALUES clauses for test data or small datasets
 record, err := pool.QueryArrow(ctx, "SELECT * FROM (VALUES (1, 'Alice'), (2, 'Bob')) AS my_table(id, name)")
 ```
+
+💡 **For dynamic queries with user input, use pgx directly with proper parameterization, then pass results to PGArrow if needed, or build SQL strings with proper escaping/validation.**
 
 ### Example DATABASE_URL formats:
 

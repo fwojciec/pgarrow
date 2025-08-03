@@ -114,9 +114,10 @@ func NewPool(ctx context.Context, connString string, opts ...Option) (*Pool, err
 // This is the primary method for converting PostgreSQL data to Arrow format using
 // the binary COPY protocol for optimal performance.
 //
-// IMPORTANT: This method does NOT support parameterized queries ($1, $2, etc.) due to
-// limitations of PostgreSQL's COPY TO BINARY protocol. Use literal values in your SQL
-// or consider alternative approaches for dynamic queries.
+// DESIGN: This method requires literal SQL values and does not accept parameters.
+// This design choice aligns with the COPY BINARY protocol's requirements and provides
+// maximum performance. For dynamic queries, build SQL strings with literal values
+// using proper quoting/escaping or use pgx directly for parameterized queries.
 //
 // The method handles all 7 supported data types:
 //   - bool (PostgreSQL OID 16)
@@ -148,11 +149,7 @@ func NewPool(ctx context.Context, connString string, opts ...Option) (*Pool, err
 //	if err := reader.Err(); err != nil {
 //	    return err
 //	}
-func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.RecordReader, error) {
-	// Check for parameterized queries - COPY TO BINARY doesn't support parameters
-	if len(args) > 0 {
-		return nil, fmt.Errorf("parameterized queries are not supported with COPY TO BINARY protocol - use literal values in SQL instead")
-	}
+func (p *Pool) QueryArrow(ctx context.Context, sql string) (array.RecordReader, error) {
 
 	conn, err := p.pool.Acquire(ctx)
 	if err != nil {
