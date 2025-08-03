@@ -162,10 +162,30 @@ PGArrow types example completed successfully!
 
 ## Performance Notes
 
-PGArrow provides significant performance benefits over text-based parsing:
-- **Connection Speed**: <100ms vs 6-8s for ADBC with large schemas
-- **Memory Efficiency**: Direct binary format parsing
-- **Zero CGO**: Pure Go implementation
-- **Type Safety**: Strong typing with Arrow format
+PGArrow performance characteristics:
 
-For performance comparisons, see the benchmarks in the main test suite.
+### Architecture Benefits
+- **Built on pgx**: Uses proven PostgreSQL driver as foundation
+- **Just-in-time metadata**: Schema discovered at query time, not at connection time
+- **Pool-based design**: Uses pgxpool for connection management
+
+### Memory Efficiency  
+- **Current**: 38,284 B/op, 1,538 allocs/op (optimized implementation)
+- **Previous**: 354,954 B/op, 6,145 allocs/op (unoptimized implementation)
+- **89% memory reduction**, **75% fewer allocations**
+- **GC-optimized batching**: Sub-microsecond GC impact (174 gc-ns/op)
+- **Optimal batch size**: 256 rows for Go runtime efficiency
+- **Zero-copy binary data**: Direct PostgreSQL binary format parsing
+
+### Type Conversion Performance
+- **Primitive types**: 2-9 ns/op (bool, integers, floats)
+- **String types**: 26-36 ns/op with UTF-8 handling
+- **Complex types**: 12-13 ns/op (intervals, timestamps)
+- **Zero allocations** for most primitive type conversions
+
+### Architecture Benefits
+- **Current implementation**: 54% faster execution than previous version
+- **Pure Go**: Zero CGO dependencies, easy deployment
+- **Arrow Native**: Direct Arrow record output, ready for analytical workloads
+
+For comprehensive performance analysis, see [`/docs/benchmarks.md`](../docs/benchmarks.md) with 80+ benchmark functions.

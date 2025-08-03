@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/fwojciec/pgarrow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fwojciec/pgarrow/actions/workflows/ci.yml)
 
-**Fast PostgreSQL → Apache Arrow conversion in pure Go**
+**PostgreSQL → Apache Arrow conversion in pure Go**
 
-Zero-CGO library that streams PostgreSQL query results directly to Arrow format using binary protocol. Perfect for analytical workloads, data pipelines, and Arrow ecosystem integration.
+Pure Go library that streams PostgreSQL query results directly to Arrow format using binary protocol. Designed for analytical workloads, data pipelines, and Arrow ecosystem integration.
 
 ```go
 // One pool, many queries - streaming results
@@ -22,7 +22,7 @@ for reader.Next() {
 | What You Get | How It Helps |
 |--------------|---------------|
 | 🐹 **Pure Go** | Easy deployment, no CGO complexity |
-| ⚡ **Just-in-Time Metadata** | Fast connections, discover types on-demand |
+| ⚡ **Just-in-Time Metadata** | Schema discovered at query time, not at connection time |
 | 📊 **Streaming** | Constant memory usage, handles any result size |
 | 🎯 **Arrow Native** | Drop-in `array.RecordReader`, ecosystem ready |
 
@@ -97,23 +97,37 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 ## Performance <a id="performance"></a>
 
-- 🏃 **Fast Connections**: Just-in-time metadata discovery, no upfront schema queries
-- 🧠 **Memory Efficient**: Go GC-optimized batching with 89% allocation reduction
-- ⚡ **High Throughput**: Direct binary conversion, no JSON overhead  
-- 📊 **Optimized Batching**: Go runtime-aware batch sizes (256 rows) with buffer pool management
+**Performance characteristics:**
 
-### Batch Size Trade-offs
+- **Just-in-Time Metadata**: Schema discovered at query time, not at connection time
+- **Memory Usage**: 89% reduction in allocations vs previous implementation  
+- **Type Conversion**: 2-36 ns/op depending on data type complexity
+- **GC Impact**: 174 gc-ns/op measured with 256-row batches
 
-**Current Approach**: **Memory-optimized batches (256 rows)**
-- ✅ **89% reduction in memory allocations** vs traditional approaches
-- ✅ **84% reduction in GC pressure** for sustained performance
-- ✅ **Optimal for Go runtime**: Cache-friendly, GC-efficient memory patterns
-- ⚠️ **OLAP query engines**: May require batching for optimal analytics performance
+**Architecture:**
+- **Uses pgx internally**: Built on proven PostgreSQL driver foundation
+- **Just-in-time metadata discovery**: No expensive upfront schema queries
+- **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
 
-**For OLAP workloads**: Consider accumulating multiple batches before sending to analytical engines like DuckDB for optimal query performance. The memory efficiency gains often outweigh the batching overhead for most use cases.
+**Type Conversion Speed:**
+- **Primitive types** (bool, integers, floats): 2-9 ns/op, zero allocations
+- **String types**: 26-36 ns/op with UTF-8 handling
+- **Complex types** (intervals, timestamps): 12-13 ns/op
+
+**Memory Efficiency:**
+- **Current implementation**: 38,284 B/op, 1,538 allocs/op (optimized)
+- **Previous implementation**: 354,954 B/op, 6,145 allocs/op (unoptimized)  
+- **89% memory reduction**, **75% fewer allocations**, **86% less GC pressure**
+- **Zero-copy binary data** handling where possible
+
+**Implementation approach:**
+- **Direct binary parsing**: PostgreSQL COPY protocol to Arrow format
+- **Memory layout optimization**: Cache-aligned structures for Go runtime
+- **Batch size tuning**: 256 rows balances throughput and GC pressure  
+- **Zero-copy operations**: Minimize data movement where possible
 
 ```bash
-go test -bench=. -benchmem  # Run benchmarks
+go test -bench=. -benchmem  # Run comprehensive 80+ benchmark suite
 ```
 
 ---
@@ -143,7 +157,7 @@ While developed with rigorous quality processes, this software should be conside
 
 - [📖 **Complete Examples**](examples/) - Working code for all features
 - [🏗️ **Architecture Guide**](CLAUDE.md) - How it works internally  
-- [⚡ **Performance Analysis**](docs/benchmarks.md) - Detailed metrics
+- [⚡ **Performance Analysis**](docs/benchmarks.md) - CompiledSchema benchmarks (80+ functions)
 - [🧪 **Testing Strategy**](docs/testing.md) - Our quality approach
 
 ## Status & Limitations

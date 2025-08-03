@@ -15,6 +15,8 @@ Strategic guidance for LLMs working with this codebase.
 
 **Quality Philosophy**: **Process over polish** - systematic validation results in quality rather than fixing issues post-hoc.
 
+**Documentation Philosophy**: **Objectivity over marketing** - provide measurable facts that enable informed decisions rather than promotional language.
+
 ## Quality-First Development
 
 **Feedback Loops**: TDD → Systematic Validation → Continuous Integration → Performance Baselines
@@ -29,6 +31,24 @@ Strategic guidance for LLMs working with this codebase.
 - Public API testing: `*_test` packages ensure tests use public interface only
 - Memory safety: checked allocators + proper resource cleanup
 - PostgreSQL schema isolation: unique schemas per test enable safe concurrent execution
+
+## Documentation Standards
+
+**Objective Tone**: Present measurable facts, not marketing claims
+- ✅ "89% reduction in allocations vs previous implementation"
+- ✅ "2-36 ns/op measured depending on data type complexity" 
+- ✅ "Uses pgx internally with Arrow format optimization"
+- ❌ "delivers exceptional performance", "ultra-fast", "revolutionary"
+
+**Honest Comparisons**: Compare comparable things with clear context
+- ✅ PGArrow vs previous PGArrow implementation (fair baseline)
+- ✅ PGArrow vs pgx with clear notes about different use cases
+- ❌ Pool creation vs actual connection establishment (apples-to-oranges)
+
+**Verifiable Claims**: All performance statements must be backed by benchmarks
+- Link to specific benchmark functions where possible
+- Include measurement conditions and context
+- Acknowledge limitations and trade-offs
 
 ## Essential Commands
 
