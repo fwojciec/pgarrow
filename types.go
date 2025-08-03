@@ -53,10 +53,10 @@ type ColumnWriter interface {
 	// BuilderStats returns current length and capacity for optimization insights
 	BuilderStats() (length, capacity int)
 
-	// SetBufferPool sets the buffer pool for memory management (NEW for GC optimization)
+	// SetBufferPool sets the buffer pool for memory management
 	SetBufferPool(pool *BufferPool)
 
-	// PreAllocate pre-allocates capacity for the expected batch size (NEW for performance)
+	// PreAllocate pre-allocates capacity for the expected batch size
 	PreAllocate(expectedBatchSize int)
 }
 
@@ -923,7 +923,7 @@ func (w *Float64ColumnWriter) PreAllocate(expectedBatchSize int) {
 // Achieves zero-copy by appending bytes directly to the binary builder
 type StringColumnWriter struct {
 	Builder    *array.StringBuilder
-	bufferPool *BufferPool // NEW: Buffer pool for temporary allocations
+	bufferPool *BufferPool // Buffer pool for temporary allocations
 
 	// Pre-allocation optimization
 	expectedBatchSize int
@@ -977,7 +977,7 @@ func (w *StringColumnWriter) PreAllocate(expectedBatchSize int) {
 // BinaryColumnWriter writes PostgreSQL bytea data directly to Arrow binary arrays
 type BinaryColumnWriter struct {
 	Builder    *array.BinaryBuilder
-	bufferPool *BufferPool // NEW: Buffer pool for temporary allocations
+	bufferPool *BufferPool // Buffer pool for temporary allocations
 
 	// Pre-allocation optimization
 	expectedBatchSize int

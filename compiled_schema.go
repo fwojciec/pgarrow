@@ -41,7 +41,7 @@ type CompiledSchema struct {
 	allocator memory.Allocator // Memory allocator
 
 	// Buffer pool integration for GC efficiency
-	bufferPool *BatchParserPool // NEW: Buffer management
+	bufferPool *BatchParserPool // Buffer management
 
 	// Cold data: rarely accessed (separate cache line)
 	_        [32]byte // Ensure separation from hot data
@@ -95,7 +95,7 @@ func CompileSchema(pgOIDs []uint32, arrowSchema *arrow.Schema, alloc memory.Allo
 		fieldOIDs:     pgOIDs,
 		allocator:     alloc,
 		batchSize:     optimalBatchSize, // Use Go-optimized batch size
-		bufferPool:    bufferPool,       // NEW: Buffer management
+		bufferPool:    bufferPool,       // Buffer management
 		released:      false,
 	}, nil
 }

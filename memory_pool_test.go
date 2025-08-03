@@ -2,6 +2,7 @@ package pgarrow_test
 
 import (
 	"runtime/debug"
+	"strconv"
 	"testing"
 
 	"github.com/fwojciec/pgarrow"
@@ -165,7 +166,7 @@ func BenchmarkMemoryLayoutOptimalBatchSizes(b *testing.B) {
 }
 
 func formatBatchSizeName(batchSize int) string {
-	return "Batch_" + string(rune('0'+batchSize/100)) + string(rune('0'+(batchSize%100)/10)) + string(rune('0'+batchSize%10))
+	return "Batch_" + strconv.Itoa(batchSize)
 }
 
 func benchmarkBatchSizeGCImpact(b *testing.B, batchSize int) {
@@ -462,5 +463,42 @@ func TestMemoryLayoutConstants(t *testing.T) {
 	if pgarrow.OptimalBatchSizeMedium <= pgarrow.OptimalBatchSizeLarge {
 		t.Errorf("Medium batch size (%d) should be larger than large (%d)",
 			pgarrow.OptimalBatchSizeMedium, pgarrow.OptimalBatchSizeLarge)
+	}
+}
+
+// TestFormatBatchSizeName ensures batch size name formatting works correctly
+// This test would have failed with the original string conversion bug
+func TestFormatBatchSizeName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		batchSize int
+		expected  string
+	}{
+		{64, "Batch_64"},
+		{128, "Batch_128"},
+		{256, "Batch_256"},
+		{512, "Batch_512"},
+		{1024, "Batch_1024"}, // This would have failed with the original bug
+		{2048, "Batch_2048"}, // This would have produced invalid characters
+	}
+
+	for _, tt := range tests {
+		tt := tt // Capture range variable
+		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
+			actual := formatBatchSizeName(tt.batchSize)
+			if actual != tt.expected {
+				t.Errorf("formatBatchSizeName(%d) = %q, want %q", tt.batchSize, actual, tt.expected)
+			}
+
+			// Ensure the result contains only printable ASCII characters
+			for i, r := range actual {
+				if r < 32 || r > 126 {
+					t.Errorf("formatBatchSizeName(%d) produced non-printable character at position %d: %q (rune %d)",
+						tt.batchSize, i, string(r), r)
+				}
+			}
+		})
 	}
 }
