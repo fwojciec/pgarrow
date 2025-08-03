@@ -1163,8 +1163,13 @@ func (w *StringColumnWriter) ensureValidityBuffer(newLength, additionalItems int
 				copy(newValidityBuf.Bytes(), w.validityBuffer.Bytes()[:w.validityBuffer.Len()])
 				w.validityBuffer.Release()
 			} else {
-				for i := range newValidityBuf.Bytes() {
-					newValidityBuf.Bytes()[i] = 0xFF
+				// Efficiently fill the buffer with 0xFF using copy pattern
+				buf := newValidityBuf.Bytes()
+				if len(buf) > 0 {
+					buf[0] = 0xFF
+					for i := 1; i < len(buf); i *= 2 {
+						copy(buf[i:], buf[:i])
+					}
 				}
 			}
 
