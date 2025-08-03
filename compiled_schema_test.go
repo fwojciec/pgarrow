@@ -39,6 +39,7 @@ func TestCompileSchema(t *testing.T) {
 		compiledSchema, err := pgarrow.CompileSchema(pgOIDs, arrowSchema, alloc)
 		require.NoError(t, err)
 		require.NotNil(t, compiledSchema)
+		defer compiledSchema.Release()
 
 		// Verify schema properties
 		require.Equal(t, arrowSchema, compiledSchema.Schema())

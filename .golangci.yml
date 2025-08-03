@@ -73,6 +73,16 @@ linters:
       - linters:
           - funlen
         path: _test\.go
+      # Exclude errcheck for sync.Pool.Get() calls - these never return errors
+      - linters:
+          - errcheck
+        text: "Error return value is not checked"
+        source: "Pool\\.Get\\(\\)"
+      # Exclude SA6002 for sync.Pool.Put() calls - storing slices in pools is intentional
+      - linters:
+          - staticcheck
+        text: "SA6002"
+        source: "Pool\\.Put\\("
     paths:
       - third_party$
       - builtin$
