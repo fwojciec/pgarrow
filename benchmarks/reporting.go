@@ -84,14 +84,24 @@ func ReportComparison(pgarrow, naive StatisticalResult) string {
 	}
 
 	// GC comparison
-	gcRatio := float64(pgarrow.AvgGC.TotalGCRuns) / float64(naive.AvgGC.TotalGCRuns)
 	report.WriteString("\n--- GC Impact Comparison ---\n")
 	report.WriteString(fmt.Sprintf("PGArrow GC runs:   %d\n", pgarrow.AvgGC.TotalGCRuns))
 	report.WriteString(fmt.Sprintf("Naive pgx GC runs: %d\n", naive.AvgGC.TotalGCRuns))
-	if gcRatio < 1 {
-		report.WriteString(fmt.Sprintf("PGArrow has %.1f%% fewer GC runs\n", (1-gcRatio)*100))
+
+	// Handle division by zero gracefully
+	if naive.AvgGC.TotalGCRuns == 0 && pgarrow.AvgGC.TotalGCRuns == 0 {
+		report.WriteString("Both approaches had no GC runs\n")
+	} else if naive.AvgGC.TotalGCRuns == 0 {
+		report.WriteString(fmt.Sprintf("PGArrow triggered %d GC runs vs 0 for naive\n", pgarrow.AvgGC.TotalGCRuns))
+	} else if pgarrow.AvgGC.TotalGCRuns == 0 {
+		report.WriteString(fmt.Sprintf("PGArrow had no GC runs vs %d for naive\n", naive.AvgGC.TotalGCRuns))
 	} else {
-		report.WriteString(fmt.Sprintf("PGArrow has %.1f%% more GC runs\n", (gcRatio-1)*100))
+		gcRatio := float64(pgarrow.AvgGC.TotalGCRuns) / float64(naive.AvgGC.TotalGCRuns)
+		if gcRatio < 1 {
+			report.WriteString(fmt.Sprintf("PGArrow has %.1f%% fewer GC runs\n", (1-gcRatio)*100))
+		} else {
+			report.WriteString(fmt.Sprintf("PGArrow has %.1f%% more GC runs\n", (gcRatio-1)*100))
+		}
 	}
 
 	return report.String()
@@ -124,9 +134,9 @@ func ReportBaseline(result StatisticalResult, expectedRows int64) string {
 	report.WriteString(fmt.Sprintf("Expected Duration: %v\n", expectedDuration))
 
 	// Batch analysis
-	avgBatchSize := float64(expectedRows) / float64(result.Runs) // Simplified estimation
 	report.WriteString("\n--- Batch Analysis ---\n")
-	report.WriteString(fmt.Sprintf("Estimated Avg Batch Size: %.0f rows\n", avgBatchSize))
+	report.WriteString(fmt.Sprintf("Average Batch Size: %.0f rows\n", result.AvgBatchSize))
+	report.WriteString(fmt.Sprintf("Average Batch Count: %d batches\n", result.AvgBatchCount))
 
 	// Memory baseline
 	report.WriteString("\n--- Memory Baseline ---\n")

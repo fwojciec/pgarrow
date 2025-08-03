@@ -54,8 +54,16 @@ type StatisticalResult struct {
 	AvgThroughput float64
 	MinThroughput float64
 	MaxThroughput float64
+	AvgBatchSize  float64
+	AvgBatchCount int64
 	AvgMemory     MemoryMetrics
 	AvgGC         GCMetrics
+}
+
+// ComparisonResult holds both PGArrow and naive benchmark statistics
+type ComparisonResult struct {
+	PGArrow StatisticalResult
+	Naive   StatisticalResult
 }
 
 // Runner executes performance benchmarks with statistical rigor

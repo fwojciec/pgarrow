@@ -9,9 +9,9 @@ import (
 )
 
 // RunStatisticalBenchmark executes multiple benchmark runs and provides statistical analysis
-func (r *Runner) RunStatisticalBenchmark(ctx context.Context, query string, runs int) (StatisticalResult, error) {
+func (r *Runner) RunStatisticalBenchmark(ctx context.Context, query string, runs int) (ComparisonResult, error) {
 	if runs < 1 {
-		return StatisticalResult{}, fmt.Errorf("runs must be at least 1, got %d", runs)
+		return ComparisonResult{}, fmt.Errorf("runs must be at least 1, got %d", runs)
 	}
 
 	pgarrowResults := make([]BenchmarkResult, runs)
@@ -21,7 +21,7 @@ func (r *Runner) RunStatisticalBenchmark(ctx context.Context, query string, runs
 	for i := 0; i < runs; i++ {
 		result, err := r.RunPGArrowBenchmark(ctx, query)
 		if err != nil {
-			return StatisticalResult{}, fmt.Errorf("PGArrow run %d failed: %w", i+1, err)
+			return ComparisonResult{}, fmt.Errorf("PGArrow run %d failed: %w", i+1, err)
 		}
 		pgarrowResults[i] = result
 	}
@@ -30,31 +30,20 @@ func (r *Runner) RunStatisticalBenchmark(ctx context.Context, query string, runs
 	for i := 0; i < runs; i++ {
 		result, err := r.RunNaivePgxBenchmark(ctx, query)
 		if err != nil {
-			return StatisticalResult{}, fmt.Errorf("naive run %d failed: %w", i+1, err)
+			return ComparisonResult{}, fmt.Errorf("naive run %d failed: %w", i+1, err)
 		}
 		naiveResults[i] = result
 	}
 
-	// Calculate statistics
+	// Calculate statistics for both approaches
 	pgarrowStats := calculateStatistics("PGArrow", pgarrowResults)
-	_ = calculateStatistics("Naive pgx→Arrow", naiveResults)
+	naiveStats := calculateStatistics("Naive pgx→Arrow", naiveResults)
 
-	// Return the primary measurement (PGArrow) with comparison data
-	comparison := StatisticalResult{
-		Name:          fmt.Sprintf("PGArrow vs Naive (n=%d)", runs),
-		Runs:          runs,
-		AvgDuration:   pgarrowStats.AvgDuration,
-		MinDuration:   pgarrowStats.MinDuration,
-		MaxDuration:   pgarrowStats.MaxDuration,
-		AvgThroughput: pgarrowStats.AvgThroughput,
-		MinThroughput: pgarrowStats.MinThroughput,
-		MaxThroughput: pgarrowStats.MaxThroughput,
-		AvgMemory:     pgarrowStats.AvgMemory,
-		AvgGC:         pgarrowStats.AvgGC,
-	}
-
-	// Add comparison context in formatted output later
-	return comparison, nil
+	// Return comprehensive comparison
+	return ComparisonResult{
+		PGArrow: pgarrowStats,
+		Naive:   naiveStats,
+	}, nil
 }
 
 // calculateStatistics computes comprehensive statistics from multiple benchmark runs
@@ -96,6 +85,16 @@ func calculateStatistics(name string, results []BenchmarkResult) StatisticalResu
 	}
 	avgThroughput := totalThroughput / float64(len(throughputs))
 
+	// Batch statistics (averages)
+	var totalBatchSize float64
+	var totalBatchCount int64
+	for _, r := range results {
+		totalBatchSize += r.AvgBatchSize
+		totalBatchCount += r.BatchCount
+	}
+	avgBatchSize := totalBatchSize / float64(len(results))
+	avgBatchCount := totalBatchCount / int64(len(results))
+
 	// Memory statistics (averages)
 	avgMemory := calculateAverageMemoryMetrics(results)
 	avgGC := calculateAverageGCMetrics(results)
@@ -109,6 +108,8 @@ func calculateStatistics(name string, results []BenchmarkResult) StatisticalResu
 		AvgThroughput: avgThroughput,
 		MinThroughput: minThroughput,
 		MaxThroughput: maxThroughput,
+		AvgBatchSize:  avgBatchSize,
+		AvgBatchCount: avgBatchCount,
 		AvgMemory:     avgMemory,
 		AvgGC:         avgGC,
 	}

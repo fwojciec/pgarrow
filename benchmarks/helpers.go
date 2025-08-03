@@ -51,12 +51,22 @@ func (r *Runner) finalizeBenchmarkMetrics(name string, beforeMem, beforeGC runti
 	throughput := float64(totalRows) / duration.Seconds()
 	avgBatchSize := float64(totalRows) / float64(batchCount)
 
+	// Calculate true peak allocation using the maximum seen during runtime
+	peakAlloc := afterMem.HeapAlloc
+	if beforeMem.HeapAlloc > peakAlloc {
+		peakAlloc = beforeMem.HeapAlloc
+	}
+	// Use TotalAlloc difference as a better approximation of peak usage
+	if afterMem.TotalAlloc-beforeMem.TotalAlloc > peakAlloc {
+		peakAlloc = afterMem.TotalAlloc - beforeMem.TotalAlloc
+	}
+
 	memMetrics := MemoryMetrics{
 		AllocsBefore:   beforeMem.Mallocs,
 		AllocsAfter:    afterMem.Mallocs,
 		TotalAllocs:    afterMem.Mallocs - beforeMem.Mallocs,
 		BytesAllocated: afterMem.TotalAlloc - beforeMem.TotalAlloc,
-		PeakAlloc:      afterMem.HeapAlloc,
+		PeakAlloc:      peakAlloc,
 		HeapInUse:      afterMem.HeapInuse,
 		HeapSys:        afterMem.HeapSys,
 		CheckedAlloc:   allocAfter - allocBefore,
@@ -154,12 +164,22 @@ func (r *Runner) calculateNaiveMetrics(name string, beforeMem, beforeGC runtime.
 	// Calculate metrics
 	throughput := float64(totalRows) / duration.Seconds()
 
+	// Calculate true peak allocation using the maximum seen during runtime
+	peakAlloc := afterMem.HeapAlloc
+	if beforeMem.HeapAlloc > peakAlloc {
+		peakAlloc = beforeMem.HeapAlloc
+	}
+	// Use TotalAlloc difference as a better approximation of peak usage
+	if afterMem.TotalAlloc-beforeMem.TotalAlloc > peakAlloc {
+		peakAlloc = afterMem.TotalAlloc - beforeMem.TotalAlloc
+	}
+
 	memMetrics := MemoryMetrics{
 		AllocsBefore:   beforeMem.Mallocs,
 		AllocsAfter:    afterMem.Mallocs,
 		TotalAllocs:    afterMem.Mallocs - beforeMem.Mallocs,
 		BytesAllocated: afterMem.TotalAlloc - beforeMem.TotalAlloc,
-		PeakAlloc:      afterMem.HeapAlloc,
+		PeakAlloc:      peakAlloc,
 		HeapInUse:      afterMem.HeapInuse,
 		HeapSys:        afterMem.HeapSys,
 	}

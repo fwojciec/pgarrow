@@ -15,7 +15,7 @@ go run main.go
 # Generate baseline measurements for Phase 1 goals
 go run main.go -baseline -rows 5000000 -runs 5
 
-# Custom benchmark parameters
+# Custom benchmark parameters with verbose comparison output
 go run main.go -runs 10 -rows 1000000 -v
 ```
 
@@ -52,20 +52,26 @@ go run main.go -runs 10 -rows 1000000 -v
 
 ```go
 runner := benchmarks.NewRunner(databaseURL)
-result, err := runner.RunStatisticalBenchmark(ctx, query, 5)
+comparison, err := runner.RunStatisticalBenchmark(ctx, query, 5)
 if err != nil {
     log.Fatal(err)
 }
 
-fmt.Print(result.ReportResult())
+// Show PGArrow results
+fmt.Print(comparison.PGArrow.ReportResult())
+
+// Show detailed comparison
+fmt.Print(benchmarks.ReportComparison(comparison.PGArrow, comparison.Naive))
 ```
 
-### Performance Comparison
+### Individual Benchmark Runs
 
 ```go
+// Run individual benchmarks
 pgarrowResult, _ := runner.RunPGArrowBenchmark(ctx, query)
 naiveResult, _ := runner.RunNaivePgxBenchmark(ctx, query)
 
+// Manual comparison reporting
 comparison := benchmarks.ReportComparison(pgarrowStats, naiveStats)
 fmt.Print(comparison)
 ```
@@ -73,7 +79,7 @@ fmt.Print(comparison)
 ### Baseline Measurement
 
 ```go
-baseline := benchmarks.ReportBaseline(result, 5000000)
+baseline := benchmarks.ReportBaseline(comparison.PGArrow, 5000000)
 fmt.Print(baseline) // Compare against 28.2s, 177K rows/sec from issue context
 ```
 
@@ -153,7 +159,7 @@ Usage: go run main.go [options]
     Number of benchmark runs for statistical analysis (default 5)
 -rows int
     Number of rows to benchmark using generate_series (default 100000)
--v  Verbose output with progress details
+-v  Verbose output with detailed PGArrow vs Naive comparison
 -baseline
     Generate baseline measurements for Phase 1 goals
 ```

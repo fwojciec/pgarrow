@@ -72,17 +72,24 @@ func TestStatisticalBenchmark(t *testing.T) {
 	query := "SELECT i as id, 'test_' || i::text as name FROM generate_series(1, 50) i"
 	runs := 3 // Small number for tests
 
-	result, err := runner.RunStatisticalBenchmark(ctx, query, runs)
+	comparisonResult, err := runner.RunStatisticalBenchmark(ctx, query, runs)
 	require.NoError(t, err)
 
-	// Validate statistical result structure
-	require.Contains(t, result.Name, "PGArrow vs Naive")
-	require.Equal(t, runs, result.Runs)
-	require.Greater(t, result.AvgThroughput, 0.0)
-	require.Greater(t, result.MinThroughput, 0.0)
-	require.Greater(t, result.MaxThroughput, 0.0)
-	require.LessOrEqual(t, result.MinThroughput, result.AvgThroughput)
-	require.GreaterOrEqual(t, result.MaxThroughput, result.AvgThroughput)
+	// Validate PGArrow statistical result structure
+	pgarrowResult := comparisonResult.PGArrow
+	require.Contains(t, pgarrowResult.Name, "PGArrow")
+	require.Equal(t, runs, pgarrowResult.Runs)
+	require.Greater(t, pgarrowResult.AvgThroughput, 0.0)
+	require.Greater(t, pgarrowResult.MinThroughput, 0.0)
+	require.Greater(t, pgarrowResult.MaxThroughput, 0.0)
+	require.LessOrEqual(t, pgarrowResult.MinThroughput, pgarrowResult.AvgThroughput)
+	require.GreaterOrEqual(t, pgarrowResult.MaxThroughput, pgarrowResult.AvgThroughput)
+
+	// Validate naive statistical result structure
+	naiveResult := comparisonResult.Naive
+	require.Contains(t, naiveResult.Name, "Naive")
+	require.Equal(t, runs, naiveResult.Runs)
+	require.Greater(t, naiveResult.AvgThroughput, 0.0)
 }
 
 // TestReporting validates the performance reporting functionality
