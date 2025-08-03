@@ -451,10 +451,11 @@ func (r *PGArrowRecordReader) convertFieldsToValues(fields []Field, registry *Ty
 			switch fieldData := field.Value.(type) {
 			case []byte:
 				// Raw bytes from parser - for text types, skip TypeHandler entirely
-				if _, isTextType := handler.(*TextType); isTextType {
+				switch handler.(type) {
+				case *TextType:
 					// Zero-copy: pass bytes directly to Arrow builder
 					convertedValue = fieldData
-				} else {
+				default:
 					// Non-text types need TypeHandler parsing
 					convertedValue, err = handler.Parse(fieldData)
 				}
