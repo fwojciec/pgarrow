@@ -74,7 +74,7 @@ CompiledSchema memory optimization results:
 PGArrow vs pgx text format parsing:
 
 #### Pool vs Connection Creation
-- **PGArrow Pool Creation**: ~10,001 ns/op (pgxpool.New - creates connection pool)
+- **PGArrow Pool Creation**: ~10μs (pgxpool.New - creates connection pool)
 - **pgx Single Connection**: ~3,455,295 ns/op (pgx.Connect - establishes actual connection)
 
 *Note: This comparison is not directly meaningful since PGArrow uses pgx internally. The difference reflects pool creation vs actual connection establishment, not a performance advantage.*

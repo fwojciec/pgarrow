@@ -12,6 +12,13 @@ import (
 	"github.com/fwojciec/pgarrow"
 )
 
+// Performance metrics constants for maintainability
+const (
+	ExecutionSpeedImprovement = "54% faster execution than previous implementation"
+	MemoryOptimization        = "89% reduction in allocations, 75% fewer allocs/op"
+	GCEfficiency              = "174 gc-ns/op measured with 256-row batches"
+)
+
 func main() {
 	// Use CheckedAllocator for comprehensive memory leak detection
 	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
@@ -33,9 +40,9 @@ func main() {
 	defer cancel()
 
 	fmt.Println("=== PGArrow Data Types Demo ===")
-	fmt.Println("Performance: 54% faster execution than previous implementation")
-	fmt.Println("Memory usage: 89% reduction in allocations, 75% fewer allocs/op")
-	fmt.Println("GC impact: 174 gc-ns/op measured with 256-row batches")
+	fmt.Printf("Performance: %s\n", ExecutionSpeedImprovement)
+	fmt.Printf("Memory usage: %s\n", MemoryOptimization)
+	fmt.Printf("GC impact: %s\n", GCEfficiency)
 	fmt.Println()
 
 	// Demonstrate all 17 supported types

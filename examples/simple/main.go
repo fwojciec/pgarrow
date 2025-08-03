@@ -12,6 +12,13 @@ import (
 	"github.com/fwojciec/pgarrow"
 )
 
+// Performance metrics constants for maintainability
+const (
+	PGXFoundation      = "Uses proven PostgreSQL driver with Arrow optimization"
+	MemoryReduction    = "89% memory reduction vs previous implementation"
+	GCEfficiencyMetric = "Sub-microsecond GC impact (174 gc-ns/op)"
+)
+
 func main() {
 	// Use CheckedAllocator for memory leak detection - recommended for all applications
 	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
@@ -51,9 +58,9 @@ func main() {
 	}
 
 	fmt.Println("\nPGArrow simple example completed successfully!")
-	fmt.Printf("✓ Built on pgx: Uses proven PostgreSQL driver with Arrow optimization\n")
-	fmt.Printf("✓ Memory optimized: 89%% memory reduction vs previous implementation\n")
-	fmt.Printf("✓ GC efficient: Sub-microsecond GC impact (174 gc-ns/op)\n")
+	fmt.Printf("✓ Built on pgx: %s\n", PGXFoundation)
+	fmt.Printf("✓ Memory optimized: %s\n", MemoryReduction)
+	fmt.Printf("✓ GC efficient: %s\n", GCEfficiencyMetric)
 }
 
 func setupSimplePool(alloc memory.Allocator) (*pgarrow.Pool, error) {
