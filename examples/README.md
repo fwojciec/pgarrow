@@ -166,7 +166,7 @@ PGArrow performance characteristics:
 
 ### Architecture Benefits
 - **Built on pgx**: Uses proven PostgreSQL driver as foundation
-- **Just-in-time metadata**: Schema discovered on first query, not at connection time
+- **Just-in-time metadata**: Schema discovered at query time, not at connection time
 - **Pool-based design**: Uses pgxpool for connection management
 
 ### Memory Efficiency  

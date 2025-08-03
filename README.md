@@ -22,7 +22,7 @@ for reader.Next() {
 | What You Get | How It Helps |
 |--------------|---------------|
 | 🐹 **Pure Go** | Easy deployment, no CGO complexity |
-| ⚡ **Just-in-Time Metadata** | Schema discovered on first query, not at connection time |
+| ⚡ **Just-in-Time Metadata** | Schema discovered at query time, not at connection time |
 | 📊 **Streaming** | Constant memory usage, handles any result size |
 | 🎯 **Arrow Native** | Drop-in `array.RecordReader`, ecosystem ready |
 
@@ -99,7 +99,7 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 **Performance characteristics:**
 
-- **Just-in-Time Metadata**: Schema discovered on first query, not at connection time
+- **Just-in-Time Metadata**: Schema discovered at query time, not at connection time
 - **Memory Usage**: 89% reduction in allocations vs previous implementation  
 - **Type Conversion**: 2-36 ns/op depending on data type complexity
 - **GC Impact**: 174 gc-ns/op measured with 256-row batches
