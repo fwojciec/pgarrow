@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/fwojciec/pgarrow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fwojciec/pgarrow/actions/workflows/ci.yml)
 
-**Fast PostgreSQL → Apache Arrow conversion in pure Go**
+**PostgreSQL → Apache Arrow conversion in pure Go**
 
-Zero-CGO library that streams PostgreSQL query results directly to Arrow format using binary protocol. Perfect for analytical workloads, data pipelines, and Arrow ecosystem integration.
+Pure Go library that streams PostgreSQL query results directly to Arrow format using binary protocol. Designed for analytical workloads, data pipelines, and Arrow ecosystem integration.
 
 ```go
 // One pool, many queries - streaming results
@@ -22,7 +22,7 @@ for reader.Next() {
 | What You Get | How It Helps |
 |--------------|---------------|
 | 🐹 **Pure Go** | Easy deployment, no CGO complexity |
-| ⚡ **Just-in-Time Metadata** | Fast connections, discover types on-demand |
+| ⚡ **Just-in-Time Metadata** | Schema discovered on first query, not at connection time |
 | 📊 **Streaming** | Constant memory usage, handles any result size |
 | 🎯 **Arrow Native** | Drop-in `array.RecordReader`, ecosystem ready |
 
@@ -104,9 +104,7 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 - **Type Conversion**: 2-36 ns/op depending on data type complexity
 - **GC Impact**: 174 gc-ns/op measured with 256-row batches
 
-### Performance Characteristics
-
-**Architecture Benefits:**
+**Architecture:**
 - **Uses pgx internally**: Built on proven PostgreSQL driver foundation
 - **Just-in-time metadata discovery**: No expensive upfront schema queries
 - **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
@@ -121,8 +119,6 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 - **Previous implementation**: 354,954 B/op, 6,145 allocs/op (unoptimized)  
 - **89% memory reduction**, **75% fewer allocations**, **86% less GC pressure**
 - **Zero-copy binary data** handling where possible
-
-### Architecture Benefits
 
 **Implementation approach:**
 - **Direct binary parsing**: PostgreSQL COPY protocol to Arrow format
