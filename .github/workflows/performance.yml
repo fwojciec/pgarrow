@@ -1,0 +1,125 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Generate baseline measurements'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  benchmark:
+    name: Performance Measurement
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pgarrow_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Wait for PostgreSQL
+      run: |
+        until pg_isready -h localhost -p 5432 -U postgres; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+
+    - name: Setup test database
+      run: |
+        PGPASSWORD=postgres psql -h localhost -U postgres -d pgarrow_test -c "
+          CREATE TABLE IF NOT EXISTS performance_test (
+            id BIGSERIAL PRIMARY KEY,
+            score DOUBLE PRECISION,
+            active BOOLEAN,
+            name TEXT,
+            created_date DATE
+          );
+        "
+      env:
+        PGPASSWORD: postgres
+
+    - name: Run Performance Benchmarks
+      run: |
+        cd benchmarks/cmd
+        go run main.go -db "postgres://postgres:postgres@localhost:5432/pgarrow_test?sslmode=disable" \
+          -runs 3 -rows 10000 -v
+      env:
+        DATABASE_URL: "postgres://postgres:postgres@localhost:5432/pgarrow_test?sslmode=disable"
+
+    - name: Run Baseline Measurements (on workflow dispatch)
+      if: github.event.inputs.baseline == 'true'
+      run: |
+        cd benchmarks/cmd
+        go run main.go -db "postgres://postgres:postgres@localhost:5432/pgarrow_test?sslmode=disable" \
+          -runs 5 -rows 100000 -baseline -v
+      env:
+        DATABASE_URL: "postgres://postgres:postgres@localhost:5432/pgarrow_test?sslmode=disable"
+
+    - name: Run Benchmark Tests
+      run: go test -v ./benchmarks/...
+      env:
+        TEST_DATABASE_URL: "postgres://postgres:postgres@localhost:5432/pgarrow_test?sslmode=disable"
+
+    - name: Performance Regression Check
+      run: |
+        # Run a quick performance check to catch major regressions
+        cd benchmarks/cmd
+        OUTPUT=$(go run main.go -db "postgres://postgres:postgres@localhost:5432/pgarrow_test?sslmode=disable" \
+          -runs 3 -rows 1000 2>&1)
+        echo "$OUTPUT"
+        
+        # Check if performance warning was triggered (exit code 1)
+        if [ $? -eq 1 ]; then
+          echo "❌ Performance regression detected!"
+          echo "::error::Performance significantly below expected baseline"
+          exit 1
+        fi
+        
+        echo "✅ Performance within acceptable range"
+      env:
+        DATABASE_URL: "postgres://postgres:postgres@localhost:5432/pgarrow_test?sslmode=disable"
+
+    - name: Upload Performance Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-results
+        path: |
+          benchmarks/
+        retention-days: 30
