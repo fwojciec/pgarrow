@@ -41,6 +41,12 @@ type ColumnWriter interface {
 	// isNull: true if field is NULL (data should be ignored)
 	WriteField(data []byte, isNull bool) error
 
+	// WriteFieldBatch writes multiple binary PostgreSQL fields directly to Arrow column
+	// for improved cache efficiency and reduced function call overhead.
+	// data: slice of binary PostgreSQL field data
+	// nulls: slice of null indicators, must be same length as data
+	WriteFieldBatch(data [][]byte, nulls []bool) error
+
 	// ArrowType returns the corresponding Arrow data type
 	ArrowType() arrow.DataType
 
@@ -602,6 +608,24 @@ func (w *BoolColumnWriter) ArrowType() arrow.DataType {
 	return arrow.FixedWidthTypes.Boolean
 }
 
+func (w *BoolColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 1 {
+				return fmt.Errorf("invalid data length for bool: expected 1, got %d", len(data[i]))
+			}
+			w.Builder.Append(data[i][0] != 0)
+		}
+	}
+	return nil
+}
+
 func (w *BoolColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
@@ -628,6 +652,25 @@ func (w *Int16ColumnWriter) WriteField(data []byte, isNull bool) error {
 
 func (w *Int16ColumnWriter) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Int16
+}
+
+func (w *Int16ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 2 {
+				return fmt.Errorf("invalid data length for int16: expected 2, got %d", len(data[i]))
+			}
+			value := int16(binary.BigEndian.Uint16(data[i]))
+			w.Builder.Append(value)
+		}
+	}
+	return nil
 }
 
 func (w *Int16ColumnWriter) BuilderStats() (length, capacity int) {
@@ -658,6 +701,25 @@ func (w *Int32ColumnWriter) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Int32
 }
 
+func (w *Int32ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 4 {
+				return fmt.Errorf("invalid data length for int32: expected 4, got %d", len(data[i]))
+			}
+			value := int32(binary.BigEndian.Uint32(data[i]))
+			w.Builder.Append(value)
+		}
+	}
+	return nil
+}
+
 func (w *Int32ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
@@ -684,6 +746,25 @@ func (w *Int64ColumnWriter) WriteField(data []byte, isNull bool) error {
 
 func (w *Int64ColumnWriter) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Int64
+}
+
+func (w *Int64ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 8 {
+				return fmt.Errorf("invalid data length for int64: expected 8, got %d", len(data[i]))
+			}
+			value := int64(binary.BigEndian.Uint64(data[i]))
+			w.Builder.Append(value)
+		}
+	}
+	return nil
 }
 
 func (w *Int64ColumnWriter) BuilderStats() (length, capacity int) {
@@ -714,6 +795,25 @@ func (w *Float32ColumnWriter) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Float32
 }
 
+func (w *Float32ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 4 {
+				return fmt.Errorf("invalid data length for float32: expected 4, got %d", len(data[i]))
+			}
+			value := math.Float32frombits(binary.BigEndian.Uint32(data[i]))
+			w.Builder.Append(value)
+		}
+	}
+	return nil
+}
+
 func (w *Float32ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
@@ -742,6 +842,25 @@ func (w *Float64ColumnWriter) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Float64
 }
 
+func (w *Float64ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 8 {
+				return fmt.Errorf("invalid data length for float64: expected 8, got %d", len(data[i]))
+			}
+			value := math.Float64frombits(binary.BigEndian.Uint64(data[i]))
+			w.Builder.Append(value)
+		}
+	}
+	return nil
+}
+
 func (w *Float64ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
@@ -767,6 +886,22 @@ func (w *StringColumnWriter) ArrowType() arrow.DataType {
 	return arrow.BinaryTypes.String
 }
 
+func (w *StringColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			// Zero-copy: append bytes directly without string conversion
+			w.Builder.BinaryBuilder.Append(data[i])
+		}
+	}
+	return nil
+}
+
 func (w *StringColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
@@ -789,6 +924,22 @@ func (w *BinaryColumnWriter) WriteField(data []byte, isNull bool) error {
 
 func (w *BinaryColumnWriter) ArrowType() arrow.DataType {
 	return arrow.BinaryTypes.Binary
+}
+
+func (w *BinaryColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			// Zero-copy: append bytes directly
+			w.Builder.Append(data[i])
+		}
+	}
+	return nil
 }
 
 func (w *BinaryColumnWriter) BuilderStats() (length, capacity int) {
@@ -820,6 +971,26 @@ func (w *Date32ColumnWriter) ArrowType() arrow.DataType {
 	return arrow.PrimitiveTypes.Date32
 }
 
+func (w *Date32ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 4 {
+				return fmt.Errorf("invalid data length for date: expected 4, got %d", len(data[i]))
+			}
+			pgDays := int32(binary.BigEndian.Uint32(data[i]))
+			arrowDays := pgDays + PostgresDateEpochDays
+			w.Builder.Append(arrow.Date32(arrowDays))
+		}
+	}
+	return nil
+}
+
 func (w *Date32ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
@@ -848,6 +1019,27 @@ func (w *Time64ColumnWriter) WriteField(data []byte, isNull bool) error {
 
 func (w *Time64ColumnWriter) ArrowType() arrow.DataType {
 	return arrow.FixedWidthTypes.Time64us
+}
+
+func (w *Time64ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 8 {
+				return fmt.Errorf("invalid data length for time: expected 8, got %d", len(data[i]))
+			}
+			// PostgreSQL time is stored as microseconds since midnight
+			// Arrow Time64[microsecond] also uses microseconds - direct conversion
+			timeMicros := int64(binary.BigEndian.Uint64(data[i]))
+			w.Builder.Append(arrow.Time64(timeMicros))
+		}
+	}
+	return nil
 }
 
 func (w *Time64ColumnWriter) BuilderStats() (length, capacity int) {
@@ -882,6 +1074,30 @@ func (w *TimestampColumnWriter) WriteField(data []byte, isNull bool) error {
 
 func (w *TimestampColumnWriter) ArrowType() arrow.DataType {
 	return w.timestampType
+}
+
+func (w *TimestampColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 8 {
+				return fmt.Errorf("invalid data length for timestamp: expected 8, got %d", len(data[i]))
+			}
+			// PostgreSQL timestamp is stored as microseconds since 2000-01-01
+			// Arrow timestamp uses microseconds since 1970-01-01
+			// Add epoch adjustment to convert from PostgreSQL epoch to Arrow epoch
+			// IMPORTANT: Use signed int64 conversion, not uint64, since PG timestamps can be negative (before 2000-01-01)
+			pgMicros := int64(binary.BigEndian.Uint64(data[i]))
+			arrowMicros := pgMicros + PostgresTimestampEpochMicros
+			w.Builder.Append(arrow.Timestamp(arrowMicros))
+		}
+	}
+	return nil
 }
 
 func (w *TimestampColumnWriter) BuilderStats() (length, capacity int) {
@@ -950,6 +1166,50 @@ func (w *MonthDayNanoIntervalColumnWriter) WriteField(data []byte, isNull bool) 
 
 func (w *MonthDayNanoIntervalColumnWriter) ArrowType() arrow.DataType {
 	return arrow.FixedWidthTypes.MonthDayNanoInterval
+}
+
+func (w *MonthDayNanoIntervalColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
+	if len(data) != len(nulls) {
+		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
+	}
+
+	for i := range data {
+		if nulls[i] {
+			w.Builder.AppendNull()
+		} else {
+			if len(data[i]) != 16 {
+				return fmt.Errorf("invalid data length for interval: expected 16, got %d", len(data[i]))
+			}
+
+			// PostgreSQL interval binary format (16 bytes):
+			// Bytes 0-7:   int64 microseconds (time field)
+			// Bytes 8-11:  int32 days
+			// Bytes 12-15: int32 months
+			// IMPORTANT: Use signed int64 conversion, not uint64, since intervals can be negative
+			pgMicros := int64(binary.BigEndian.Uint64(data[i][0:8]))
+			pgDays := int32(binary.BigEndian.Uint32(data[i][8:12]))
+			pgMonths := int32(binary.BigEndian.Uint32(data[i][12:16]))
+
+			// Convert microseconds to nanoseconds with overflow check
+			const maxMicros = math.MaxInt64 / 1000
+			const minMicros = math.MinInt64 / 1000
+			if pgMicros > maxMicros || pgMicros < minMicros {
+				return fmt.Errorf("interval microseconds overflow: %d", pgMicros)
+			}
+			arrowNanos := pgMicros * 1000
+
+			// Return Arrow MonthDayNanoInterval with field reordering:
+			// PostgreSQL: (microseconds, days, months)
+			// Arrow: (months, days, nanoseconds)
+			interval := arrow.MonthDayNanoInterval{
+				Months:      pgMonths,
+				Days:        pgDays,
+				Nanoseconds: arrowNanos,
+			}
+			w.Builder.Append(interval)
+		}
+	}
+	return nil
 }
 
 func (w *MonthDayNanoIntervalColumnWriter) BuilderStats() (length, capacity int) {

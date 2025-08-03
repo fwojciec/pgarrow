@@ -2,6 +2,7 @@ package pgarrow_test
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"testing"
 
@@ -39,6 +40,60 @@ var (
 		return d
 	}()
 )
+
+// BenchmarkColumnWriter_SingleVsBatch compares single field vs batch processing performance
+func BenchmarkColumnWriter_SingleVsBatch(b *testing.B) {
+	alloc := memory.NewGoAllocator()
+
+	// Test with different batch sizes
+	batchSizes := []int{1, 10, 100, 1000}
+
+	for _, batchSize := range batchSizes {
+		b.Run(fmt.Sprintf("Int64_Single_Batch%d", batchSize), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				builder := array.NewInt64Builder(alloc)
+				writer := &pgarrow.Int64ColumnWriter{Builder: builder}
+
+				// Process fields one by one
+				for j := 0; j < batchSize; j++ {
+					err := writer.WriteField(int64Data, false)
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+
+				arr := builder.NewArray()
+				arr.Release()
+				builder.Release()
+			}
+		})
+
+		b.Run(fmt.Sprintf("Int64_Batch_Batch%d", batchSize), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				builder := array.NewInt64Builder(alloc)
+				writer := &pgarrow.Int64ColumnWriter{Builder: builder}
+
+				// Prepare batch data
+				data := make([][]byte, batchSize)
+				nulls := make([]bool, batchSize)
+				for j := 0; j < batchSize; j++ {
+					data[j] = int64Data
+					nulls[j] = false
+				}
+
+				// Process as batch
+				err := writer.WriteFieldBatch(data, nulls)
+				if err != nil {
+					b.Fatal(err)
+				}
+
+				arr := builder.NewArray()
+				arr.Release()
+				builder.Release()
+			}
+		})
+	}
+}
 
 // BenchmarkBoolType_Legacy benchmarks the legacy TypeHandler.Parse approach for bool
 func BenchmarkBoolType_Legacy(b *testing.B) {
