@@ -209,3 +209,26 @@ func TestCompiledSchema_MemoryManagement(t *testing.T) {
 
 	// CheckedAllocator assertion in defer will catch any leaks
 }
+
+func TestCompiledSchema_TimestampMemoryManagement(t *testing.T) {
+	t.Parallel()
+
+	alloc := memory.NewCheckedAllocator(memory.NewGoAllocator())
+	t.Cleanup(func() { alloc.AssertSize(t, 0) }) // This will fail if there are memory leaks
+
+	// Create schema specifically with timestamp and timestamptz types
+	fields := []arrow.Field{
+		{Name: "ts", Type: &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: ""}, Nullable: true},
+		{Name: "tstz", Type: &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}, Nullable: true},
+	}
+	arrowSchema := arrow.NewSchema(fields, nil)
+	pgOIDs := []uint32{1114, 1184} // TypeOIDTimestamp, TypeOIDTimestamptz
+
+	compiledSchema, err := pgarrow.CompileSchema(pgOIDs, arrowSchema, alloc)
+	require.NoError(t, err)
+
+	// Release should clean up all timestamp resources
+	compiledSchema.Release()
+
+	// CheckedAllocator assertion in defer will catch any timestamp-related leaks
+}
