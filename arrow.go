@@ -99,9 +99,9 @@ func extractFieldData(fields []Field) ([][]byte, []bool, error) {
 	return fieldData, nulls, nil
 }
 
-// parseRowsIntoBatchCompiled parses rows using CompiledSchema for direct column writing
+// parseRowsIntoBatchWithMetadata parses rows using SchemaMetadata for direct column writing
 // Uses byte-based batching following ADBC approach for optimal batch sizing
-func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
+func (r *PGArrowRecordReader) parseRowsIntoBatchWithMetadata() int {
 	rowCount := 0
 	accumulatedBytes := 0
 
@@ -129,7 +129,7 @@ func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
 		if accumulatedBytes > 0 && accumulatedBytes+rowBytes > MaxBatchSizeBytes {
 			// Since parser doesn't support putback, we must process this row first
 			// then break to start a new batch for subsequent rows
-			err = r.compiledSchema.ProcessRow(fieldData, nulls)
+			err = r.schemaMetadata.ProcessRow(fieldData, nulls)
 			if err != nil {
 				r.err = err
 				return rowCount
@@ -139,8 +139,8 @@ func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
 			break
 		}
 
-		// Direct writing to compiled column writers
-		err = r.compiledSchema.ProcessRow(fieldData, nulls)
+		// Direct writing using schema metadata parsers
+		err = r.schemaMetadata.ProcessRow(fieldData, nulls)
 		if err != nil {
 			r.err = err
 			return rowCount
@@ -171,7 +171,7 @@ func calculateRowByteSize(fieldData [][]byte, nulls []bool) int {
 // PGArrowRecordReader implements array.RecordReader for streaming PostgreSQL data
 type PGArrowRecordReader struct {
 	refCount       int64
-	compiledSchema *CompiledSchema
+	schemaMetadata *SchemaMetadata
 	parser         *Parser
 
 	// Connection lifecycle management
@@ -190,17 +190,17 @@ type PGArrowRecordReader struct {
 	batchSize int // For compatibility with existing code
 }
 
-// newCompiledRecordReader creates a new PGArrowRecordReader using an existing CompiledSchema.
-// This is the preferred constructor for optimal performance as it uses pre-compiled schema.
-func newCompiledRecordReader(compiledSchema *CompiledSchema, conn *pgxpool.Conn, pipeReader *io.PipeReader, copyDone chan struct{}) (*PGArrowRecordReader, error) {
-	parser := NewParser(pipeReader, compiledSchema.FieldOIDs())
+// newSchemaMetadataRecordReader creates a new PGArrowRecordReader using SchemaMetadata.
+// This uses the lightweight ADBC-style approach with direct parsing functions.
+func newSchemaMetadataRecordReader(schemaMetadata *SchemaMetadata, conn *pgxpool.Conn, pipeReader *io.PipeReader, copyDone chan struct{}) (*PGArrowRecordReader, error) {
+	parser := NewParser(pipeReader, schemaMetadata.FieldOIDs())
 	if err := parser.ParseHeader(); err != nil {
 		return nil, fmt.Errorf("failed to parse COPY header: %w", err)
 	}
 
 	return &PGArrowRecordReader{
 		refCount:       1,
-		compiledSchema: compiledSchema,
+		schemaMetadata: schemaMetadata,
 		parser:         parser,
 		conn:           conn,
 		pipeReader:     pipeReader,
@@ -212,7 +212,7 @@ func newCompiledRecordReader(compiledSchema *CompiledSchema, conn *pgxpool.Conn,
 
 // Schema returns the Arrow schema
 func (r *PGArrowRecordReader) Schema() *arrow.Schema {
-	return r.compiledSchema.Schema()
+	return r.schemaMetadata.Schema()
 }
 
 // Next advances to the next record batch
@@ -227,14 +227,14 @@ func (r *PGArrowRecordReader) Next() bool {
 		r.currentRecord = nil
 	}
 
-	// Use compiled schema for direct column writing
-	rowCount := r.parseRowsIntoBatchCompiled()
+	// Use schema metadata for direct column writing
+	rowCount := r.parseRowsIntoBatchWithMetadata()
 	if rowCount == 0 || r.err != nil {
 		return false
 	}
 
-	// Create record from compiled schema
-	record, err := r.compiledSchema.BuildRecord(int64(rowCount))
+	// Create record from schema metadata
+	record, err := r.schemaMetadata.BuildRecord(int64(rowCount))
 	if err != nil {
 		r.err = fmt.Errorf("failed to create Arrow record: %w", err)
 		return false
@@ -279,9 +279,9 @@ func (r *PGArrowRecordReader) Release() {
 			r.conn = nil
 		}
 
-		if r.compiledSchema != nil {
-			r.compiledSchema.Release()
-			r.compiledSchema = nil
+		if r.schemaMetadata != nil {
+			r.schemaMetadata.Release()
+			r.schemaMetadata = nil
 		}
 		r.parser = nil
 		r.released = true

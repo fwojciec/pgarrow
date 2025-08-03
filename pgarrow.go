@@ -170,8 +170,8 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string) (array.RecordReader, 
 		}
 	}
 
-	// Create CompiledSchema for optimal performance
-	compiledSchema, err := CompileSchema(fieldOIDs, schema, p.allocator)
+	// Create SchemaMetadata for optimal performance
+	schemaMetadata, err := NewSchemaMetadata(fieldOIDs, schema, p.allocator)
 	if err != nil {
 		conn.Release()
 		return nil, &QueryError{
@@ -181,12 +181,12 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string) (array.RecordReader, 
 		}
 	}
 
-	// Execute COPY and parse binary data using CompiledSchema.
-	// Ownership of compiledSchema is transferred to the returned reader.
-	// The reader is responsible for releasing compiledSchema when it is closed.
-	reader, err := p.executeCopyAndParseCompiled(ctx, conn, sql, compiledSchema)
+	// Execute COPY and parse binary data using SchemaMetadata.
+	// Ownership of schemaMetadata is transferred to the returned reader.
+	// The reader is responsible for releasing schemaMetadata when it is closed.
+	reader, err := p.executeCopyAndParseWithMetadata(ctx, conn, sql, schemaMetadata)
 	if err != nil {
-		compiledSchema.Release() // Clean up compiled schema on error
+		schemaMetadata.Release() // Clean up schema metadata on error
 		conn.Release()
 		return nil, &QueryError{
 			SQL:       sql,
@@ -241,9 +241,9 @@ func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql str
 	return schema, fieldOIDs, nil
 }
 
-// executeCopyAndParseCompiled runs COPY TO BINARY and parses the result using CompiledSchema
-// This is the preferred method for optimal performance with pre-compiled schemas
-func (p *Pool) executeCopyAndParseCompiled(ctx context.Context, conn *pgxpool.Conn, sql string, compiledSchema *CompiledSchema) (array.RecordReader, error) {
+// executeCopyAndParseWithMetadata runs COPY TO BINARY and parses the result using SchemaMetadata
+// This uses the lightweight ADBC-style approach with direct parsing functions
+func (p *Pool) executeCopyAndParseWithMetadata(ctx context.Context, conn *pgxpool.Conn, sql string, schemaMetadata *SchemaMetadata) (array.RecordReader, error) {
 	copySQL := fmt.Sprintf("COPY (%s) TO STDOUT (FORMAT BINARY)", sql)
 
 	// Set up pipe for COPY data
@@ -260,8 +260,8 @@ func (p *Pool) executeCopyAndParseCompiled(ctx context.Context, conn *pgxpool.Co
 		}
 	}()
 
-	// Create RecordReader using CompiledSchema for optimal performance
-	reader, err := newCompiledRecordReader(compiledSchema, conn, pipeReader, copyDone)
+	// Create RecordReader using SchemaMetadata for optimal performance
+	reader, err := newSchemaMetadataRecordReader(schemaMetadata, conn, pipeReader, copyDone)
 	if err != nil {
 		return nil, err
 	}

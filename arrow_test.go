@@ -11,7 +11,7 @@ import (
 )
 
 // TestOIDToArrowTypeConsistency ensures that CreateSchema produces Arrow types
-// that exactly match what CompiledSchema expects. This catches subtle issues
+// that exactly match what SchemaMetadata expects. This catches subtle issues
 // like missing TimeZone fields that could cause type mismatches.
 func TestOIDToArrowTypeConsistency(t *testing.T) {
 	t.Parallel()
@@ -54,10 +54,10 @@ func TestOIDToArrowTypeConsistency(t *testing.T) {
 
 			createSchemaType := schema.Field(0).Type
 
-			// Create a CompiledSchema to see what type it expects
-			compiledSchema, err := pgarrow.CompileSchema([]uint32{tc.oid}, schema, memory.DefaultAllocator)
-			require.NoError(t, err, "CompileSchema should succeed for OID %d (%s)", tc.oid, tc.name)
-			defer compiledSchema.Release()
+			// Create a SchemaMetadata to see what type it expects
+			schemaMetadata, err := pgarrow.NewSchemaMetadata([]uint32{tc.oid}, schema, memory.DefaultAllocator)
+			require.NoError(t, err, "NewSchemaMetadata should succeed for OID %d (%s)", tc.oid, tc.name)
+			defer schemaMetadata.Release()
 
 			// Verify that the types are exactly equal
 			// This will catch issues like missing TimeZone fields
