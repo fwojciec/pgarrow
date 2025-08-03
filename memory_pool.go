@@ -167,7 +167,7 @@ func (bp *BufferPool) PutRowBuffer(buffer [][]FieldData) {
 }
 
 // BatchParserPool provides buffer pool management for batch parsing operations.
-// This is the main interface for CompiledSchema and Parser integration.
+// This is the main interface for SchemaMetadata and Parser integration.
 type BatchParserPool struct {
 	bufferPool *BufferPool
 
