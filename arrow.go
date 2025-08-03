@@ -310,6 +310,64 @@ func (rb *RecordBuilder) NewRecord() (arrow.Record, error) {
 	return record, nil
 }
 
+// extractFieldData extracts raw binary data and null indicators from parsed fields
+// This converts from the parser's Field format to the format expected by ColumnWriters
+func extractFieldData(fields []Field) ([][]byte, []bool, error) {
+	fieldData := make([][]byte, len(fields))
+	nulls := make([]bool, len(fields))
+
+	for i, field := range fields {
+		if field.Value == nil {
+			nulls[i] = true
+			fieldData[i] = nil
+		} else {
+			nulls[i] = false
+			// ColumnWriters expect []byte - the parser should provide this for binary types
+			if data, ok := field.Value.([]byte); ok {
+				fieldData[i] = data
+			} else {
+				// For non-binary types, this is an error in integration
+				return nil, nil, fmt.Errorf("unexpected field value type for compiled schema: %T", field.Value)
+			}
+		}
+	}
+	return fieldData, nulls, nil
+}
+
+// parseRowsIntoBatchCompiled parses rows using CompiledSchema for direct column writing
+// This replaces the old parseRowsIntoBatch method, eliminating TypeRegistry overhead
+func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
+	rowCount := 0
+
+	for rowCount < r.batchSize {
+		fields, err := r.parser.ParseTuple()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			r.err = fmt.Errorf("failed to parse tuple: %w", err)
+			return rowCount
+		}
+
+		// Extract raw binary data and null indicators
+		fieldData, nulls, err := extractFieldData(fields)
+		if err != nil {
+			r.err = fmt.Errorf("failed to extract field data: %w", err)
+			return rowCount
+		}
+
+		// Direct writing to compiled column writers
+		err = r.compiledSchema.ProcessRow(fieldData, nulls)
+		if err != nil {
+			r.err = err
+			return rowCount
+		}
+
+		rowCount++
+	}
+	return rowCount
+}
+
 // Release releases all resources held by the RecordBuilder
 func (rb *RecordBuilder) Release() {
 	rb.schema = nil
@@ -324,11 +382,9 @@ func (rb *RecordBuilder) Release() {
 
 // PGArrowRecordReader implements array.RecordReader for streaming PostgreSQL data
 type PGArrowRecordReader struct {
-	refCount  int64
-	schema    *arrow.Schema
-	parser    *Parser
-	fieldOIDs []uint32
-	alloc     memory.Allocator
+	refCount       int64
+	compiledSchema *CompiledSchema
+	parser         *Parser
 
 	// Connection lifecycle management
 	conn       *pgxpool.Conn
@@ -341,29 +397,28 @@ type PGArrowRecordReader struct {
 	batchSize     int
 }
 
-// newRecordReader creates a new PGArrowRecordReader with connection lifecycle management
-func newRecordReader(schema *arrow.Schema, fieldOIDs []uint32, alloc memory.Allocator, conn *pgxpool.Conn, pipeReader *io.PipeReader, copyDone chan struct{}) (*PGArrowRecordReader, error) {
-	parser := NewParser(pipeReader, fieldOIDs)
+// newCompiledRecordReader creates a new PGArrowRecordReader using an existing CompiledSchema.
+// This is the preferred constructor for optimal performance as it uses pre-compiled schema.
+func newCompiledRecordReader(compiledSchema *CompiledSchema, conn *pgxpool.Conn, pipeReader *io.PipeReader, copyDone chan struct{}) (*PGArrowRecordReader, error) {
+	parser := NewParser(pipeReader, compiledSchema.FieldOIDs())
 	if err := parser.ParseHeader(); err != nil {
 		return nil, fmt.Errorf("failed to parse COPY header: %w", err)
 	}
 
 	return &PGArrowRecordReader{
-		refCount:   1,
-		schema:     schema,
-		parser:     parser,
-		fieldOIDs:  fieldOIDs,
-		alloc:      alloc,
-		conn:       conn,
-		pipeReader: pipeReader,
-		copyDone:   copyDone,
-		batchSize:  128800, // Default batch size optimized for DuckDB parallel processing
+		refCount:       1,
+		compiledSchema: compiledSchema,
+		parser:         parser,
+		conn:           conn,
+		pipeReader:     pipeReader,
+		copyDone:       copyDone,
+		batchSize:      128800, // Default batch size optimized for DuckDB parallel processing
 	}, nil
 }
 
 // Schema returns the Arrow schema
 func (r *PGArrowRecordReader) Schema() *arrow.Schema {
-	return r.schema
+	return r.compiledSchema.Schema()
 }
 
 // Next advances to the next record batch
@@ -378,21 +433,14 @@ func (r *PGArrowRecordReader) Next() bool {
 		r.currentRecord = nil
 	}
 
-	// Build next batch
-	recordBuilder, err := NewRecordBuilder(r.schema, r.alloc)
-	if err != nil {
-		r.err = fmt.Errorf("failed to create record builder: %w", err)
-		return false
-	}
-	defer recordBuilder.Release()
-
-	rowCount := r.parseRowsIntoBatch(recordBuilder)
+	// Use compiled schema for direct column writing
+	rowCount := r.parseRowsIntoBatchCompiled()
 	if rowCount == 0 || r.err != nil {
 		return false
 	}
 
-	// Create record from batch
-	record, err := recordBuilder.NewRecord()
+	// Create record from compiled schema
+	record, err := r.compiledSchema.BuildRecord(int64(rowCount))
 	if err != nil {
 		r.err = fmt.Errorf("failed to create Arrow record: %w", err)
 		return false
@@ -400,80 +448,6 @@ func (r *PGArrowRecordReader) Next() bool {
 
 	r.currentRecord = record
 	return true
-}
-
-// parseRowsIntoBatch parses rows from the parser into the record builder
-func (r *PGArrowRecordReader) parseRowsIntoBatch(recordBuilder *RecordBuilder) int {
-	rowCount := 0
-	registry := NewRegistry() // Create type registry for conversions
-
-	for rowCount < r.batchSize {
-		fields, err := r.parser.ParseTuple()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			r.err = fmt.Errorf("failed to parse tuple: %w", err)
-			return rowCount
-		}
-
-		values, err := r.convertFieldsToValues(fields, registry)
-		if err != nil {
-			r.err = err
-			return rowCount
-		}
-
-		if err := recordBuilder.AppendRow(values); err != nil {
-			r.err = fmt.Errorf("failed to append row to builder: %w", err)
-			return rowCount
-		}
-
-		rowCount++
-	}
-	return rowCount
-}
-
-// convertFieldsToValues converts parsed fields to typed values using TypeHandlers
-func (r *PGArrowRecordReader) convertFieldsToValues(fields []Field, registry *TypeRegistry) ([]any, error) {
-	values := make([]any, len(fields))
-	for i, field := range fields {
-		if field.Value == nil {
-			values[i] = nil
-		} else {
-			// Get the appropriate type handler and convert
-			handler, err := registry.GetHandler(r.fieldOIDs[i])
-			if err != nil {
-				return nil, fmt.Errorf("failed to get handler for OID %d: %w", r.fieldOIDs[i], err)
-			}
-
-			// Handle both []byte (for primitives/binary) and string (for text types)
-			var convertedValue any
-			switch fieldData := field.Value.(type) {
-			case []byte:
-				// Raw bytes from parser - for text types, skip TypeHandler entirely
-				switch handler.(type) {
-				case *TextType:
-					// Zero-copy: pass bytes directly to Arrow builder
-					convertedValue = fieldData
-				default:
-					// Non-text types need TypeHandler parsing
-					convertedValue, err = handler.Parse(fieldData)
-				}
-			case string:
-				// Legacy case - should not occur with optimized parser
-				convertedValue, err = handler.Parse([]byte(fieldData))
-			default:
-				return nil, fmt.Errorf("unexpected field data type from parser: %T", field.Value)
-			}
-
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse field %d: %w", i, err)
-			}
-
-			values[i] = convertedValue
-		}
-	}
-	return values, nil
 }
 
 // Record returns the current record batch
@@ -511,7 +485,10 @@ func (r *PGArrowRecordReader) Release() {
 			r.conn = nil
 		}
 
-		r.schema = nil
+		if r.compiledSchema != nil {
+			r.compiledSchema.Release()
+			r.compiledSchema = nil
+		}
 		r.parser = nil
 		r.released = true
 	}

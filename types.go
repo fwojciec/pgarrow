@@ -771,6 +771,30 @@ func (w *StringColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
 
+// BinaryColumnWriter writes PostgreSQL bytea data directly to Arrow binary arrays
+type BinaryColumnWriter struct {
+	Builder *array.BinaryBuilder
+}
+
+func (w *BinaryColumnWriter) WriteField(data []byte, isNull bool) error {
+	if isNull {
+		w.Builder.AppendNull()
+		return nil
+	}
+
+	// Zero-copy: append bytes directly
+	w.Builder.Append(data)
+	return nil
+}
+
+func (w *BinaryColumnWriter) ArrowType() arrow.DataType {
+	return arrow.BinaryTypes.Binary
+}
+
+func (w *BinaryColumnWriter) BuilderStats() (length, capacity int) {
+	return w.Builder.Len(), w.Builder.Cap()
+}
+
 // Date32ColumnWriter writes PostgreSQL date data directly to Arrow date32 arrays
 type Date32ColumnWriter struct {
 	Builder *array.Date32Builder

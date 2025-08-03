@@ -51,3 +51,6 @@ examples/types/types
 # Temporary files
 *.tmp
 *.temp
+
+# Go profiling files
+*.prof
