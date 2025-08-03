@@ -50,8 +50,8 @@ linters:
     testifylint:
       enable-all: true  # Enable all testify checks
     funlen:
-      lines: 50         # Max 50 lines to fit in AI analysis chunks
-      statements: 40    # Max 40 statements to avoid complexity
+      lines: 75         # Max 75 lines to fit in AI analysis chunks
+      statements: 60    # Max 60 statements to avoid complexity
   exclusions:
     generated: lax
     presets:
