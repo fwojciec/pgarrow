@@ -32,6 +32,9 @@ type TypeHandler interface {
 // ColumnWriter defines the interface for direct binary data → Arrow column conversion
 // without intermediate allocations. This replaces the TypeHandler.Parse pattern
 // for performance-critical scenarios.
+//
+// IMPORTANT: ColumnWriter implementations are NOT thread-safe due to underlying
+// Arrow builder state. Each ColumnWriter should be used by a single goroutine.
 type ColumnWriter interface {
 	// WriteField writes binary PostgreSQL data directly to Arrow column
 	// data: binary PostgreSQL field data
