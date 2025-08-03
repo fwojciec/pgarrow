@@ -450,17 +450,17 @@ func (r *PGArrowRecordReader) convertFieldsToValues(fields []Field, registry *Ty
 			var convertedValue any
 			switch fieldData := field.Value.(type) {
 			case []byte:
-				// Raw bytes from parser - let TypeHandler convert
-				convertedValue, err = handler.Parse(fieldData)
-			case string:
-				// String from parser - for text types, pass []byte directly to avoid allocation
+				// Raw bytes from parser - for text types, skip TypeHandler entirely
 				if _, isTextType := handler.(*TextType); isTextType {
-					// Skip string([]byte) conversion for text types
-					convertedValue = []byte(fieldData)
+					// Zero-copy: pass bytes directly to Arrow builder
+					convertedValue = fieldData
 				} else {
-					// Non-text types still need TypeHandler parsing
-					convertedValue, err = handler.Parse([]byte(fieldData))
+					// Non-text types need TypeHandler parsing
+					convertedValue, err = handler.Parse(fieldData)
 				}
+			case string:
+				// Legacy case - should not occur with optimized parser
+				convertedValue, err = handler.Parse([]byte(fieldData))
 			default:
 				return nil, fmt.Errorf("unexpected field data type from parser: %T", field.Value)
 			}
