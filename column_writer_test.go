@@ -427,3 +427,104 @@ func TestColumnWriter_DateTimeTypes(t *testing.T) {
 		require.GreaterOrEqual(t, capacity, length)
 	})
 }
+
+func TestColumnWriter_BatchProcessing(t *testing.T) {
+	t.Parallel()
+
+	t.Run("BoolColumnWriter_Batch", func(t *testing.T) {
+		t.Parallel()
+		alloc := memory.NewGoAllocator()
+		builder := array.NewBooleanBuilder(alloc)
+		defer builder.Release()
+
+		writer := &pgarrow.BoolColumnWriter{Builder: builder}
+
+		// Test batch data: [true, false, null, true]
+		data := [][]byte{
+			{0x01}, // true
+			{0x00}, // false
+			nil,    // will be ignored due to null
+			{0x01}, // true
+		}
+		nulls := []bool{false, false, true, false}
+
+		err := writer.WriteFieldBatch(data, nulls)
+		require.NoError(t, err)
+
+		// Verify length
+		length, _ := writer.BuilderStats()
+		require.Equal(t, 4, length)
+
+		// Build array and verify values
+		arr := builder.NewArray()
+		defer arr.Release()
+		boolArr, ok := arr.(*array.Boolean)
+		require.True(t, ok)
+
+		require.False(t, boolArr.IsNull(0))
+		require.True(t, boolArr.Value(0))
+
+		require.False(t, boolArr.IsNull(1))
+		require.False(t, boolArr.Value(1))
+
+		require.True(t, boolArr.IsNull(2))
+
+		require.False(t, boolArr.IsNull(3))
+		require.True(t, boolArr.Value(3))
+	})
+
+	t.Run("Batch_VsSingle_Equivalence", func(t *testing.T) {
+		t.Parallel()
+		alloc := memory.NewGoAllocator()
+
+		// Test that batch processing produces same result as individual WriteField calls
+		builderSingle := array.NewInt32Builder(alloc)
+		defer builderSingle.Release()
+		writerSingle := &pgarrow.Int32ColumnWriter{Builder: builderSingle}
+
+		builderBatch := array.NewInt32Builder(alloc)
+		defer builderBatch.Release()
+		writerBatch := &pgarrow.Int32ColumnWriter{Builder: builderBatch}
+
+		// Test data
+		values := []int32{100, -200, 0, 999, -1}
+		data := make([][]byte, len(values))
+		nulls := make([]bool, len(values))
+
+		for i, val := range values {
+			data[i] = make([]byte, 4)
+			binary.BigEndian.PutUint32(data[i], uint32(val))
+			nulls[i] = (i == 2) // Make index 2 null
+		}
+
+		// Process with single WriteField calls
+		for i := range values {
+			err := writerSingle.WriteField(data[i], nulls[i])
+			require.NoError(t, err)
+		}
+
+		// Process with batch
+		err := writerBatch.WriteFieldBatch(data, nulls)
+		require.NoError(t, err)
+
+		// Build arrays and compare
+		arrSingle := builderSingle.NewArray()
+		defer arrSingle.Release()
+		arrBatch := builderBatch.NewArray()
+		defer arrBatch.Release()
+
+		int32Single, ok := arrSingle.(*array.Int32)
+		require.True(t, ok)
+		int32Batch, ok := arrBatch.(*array.Int32)
+		require.True(t, ok)
+
+		require.Equal(t, int32Single.Len(), int32Batch.Len())
+
+		for i := 0; i < int32Single.Len(); i++ {
+			require.Equal(t, int32Single.IsNull(i), int32Batch.IsNull(i))
+			if !int32Single.IsNull(i) {
+				require.Equal(t, int32Single.Value(i), int32Batch.Value(i))
+			}
+		}
+	})
+}
