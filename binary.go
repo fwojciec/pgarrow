@@ -193,8 +193,8 @@ func (p *Parser) parseFieldData(data []byte, oid uint32) any {
 		return data
 
 	case TypeOIDText, TypeOIDVarchar, TypeOIDBpchar, TypeOIDName, TypeOIDChar:
-		// Convert to string for text types (string([]byte) copies data)
-		return string(data)
+		// Return raw bytes for text types - zero-copy optimization
+		return data
 
 	default:
 		// For primitive types (bool, int, float, date, time, timestamp, interval), return raw bytes

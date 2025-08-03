@@ -63,10 +63,10 @@ func BenchmarkQueryArrowVsPgxText(b *testing.B) {
 		{
 			name: "MixedTypesWithNulls",
 			sql: `SELECT * FROM (VALUES 
-				(1, 'Alice', 25.5, true),
-				(2, NULL, 30.0, false),
+				(1, 'Alice', 25.5::float8, true),
+				(2, NULL, 30.0::float8, false),
 				(NULL, 'Charlie', NULL, true),
-				(4, 'Diana', 28.7, NULL)
+				(4, 'Diana', 28.7::float8, NULL)
 			) AS data(id, name, score, active)`,
 		},
 	}

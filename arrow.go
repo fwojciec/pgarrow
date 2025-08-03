@@ -226,11 +226,15 @@ func (rb *RecordBuilder) appendFloat64Value(builder *array.Float64Builder, value
 }
 
 func (rb *RecordBuilder) appendStringValue(builder *array.StringBuilder, value any) error {
-	v, ok := value.(string)
-	if !ok {
-		return fmt.Errorf("type mismatch: expected string, got %T", value)
+	switch v := value.(type) {
+	case string:
+		builder.Append(v)
+	case []byte:
+		// Zero-copy optimization: append bytes directly without string conversion
+		builder.BinaryBuilder.Append(v)
+	default:
+		return fmt.Errorf("type mismatch: expected string or []byte, got %T", value)
 	}
-	builder.Append(v)
 	return nil
 }
 
@@ -446,10 +450,17 @@ func (r *PGArrowRecordReader) convertFieldsToValues(fields []Field, registry *Ty
 			var convertedValue any
 			switch fieldData := field.Value.(type) {
 			case []byte:
-				// Raw bytes from parser - let TypeHandler convert
-				convertedValue, err = handler.Parse(fieldData)
+				// Raw bytes from parser - for text types, skip TypeHandler entirely
+				switch handler.(type) {
+				case *TextType:
+					// Zero-copy: pass bytes directly to Arrow builder
+					convertedValue = fieldData
+				default:
+					// Non-text types need TypeHandler parsing
+					convertedValue, err = handler.Parse(fieldData)
+				}
 			case string:
-				// String from parser - convert back to []byte for TypeHandler
+				// Legacy case - should not occur with optimized parser
 				convertedValue, err = handler.Parse([]byte(fieldData))
 			default:
 				return nil, fmt.Errorf("unexpected field data type from parser: %T", field.Value)
