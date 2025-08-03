@@ -9,6 +9,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const (
+	// ArrowFieldMetadataOverhead represents the estimated bytes of overhead per field in Arrow arrays
+	// This includes null bitmap, validity buffer, and other Arrow-specific metadata
+	ArrowFieldMetadataOverhead = 8
+)
+
 // ColumnInfo represents PostgreSQL column metadata for Arrow schema generation
 type ColumnInfo struct {
 	Name string
@@ -94,11 +100,12 @@ func extractFieldData(fields []Field) ([][]byte, []bool, error) {
 }
 
 // parseRowsIntoBatchCompiled parses rows using CompiledSchema for direct column writing
-// This replaces the old parseRowsIntoBatch method, eliminating TypeRegistry overhead
+// Uses byte-based batching following ADBC approach for optimal batch sizing
 func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
 	rowCount := 0
+	accumulatedBytes := 0
 
-	for rowCount < r.batchSize {
+	for accumulatedBytes < r.batchSizeBytes {
 		fields, err := r.parser.ParseTuple()
 		if err == io.EOF {
 			break
@@ -115,6 +122,23 @@ func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
 			return rowCount
 		}
 
+		// Calculate byte size of this row for batch size tracking
+		rowBytes := calculateRowByteSize(fieldData, nulls)
+
+		// Check if adding this row would exceed the maximum batch size limit
+		if accumulatedBytes > 0 && accumulatedBytes+rowBytes > MaxBatchSizeBytes {
+			// Since parser doesn't support putback, we must process this row first
+			// then break to start a new batch for subsequent rows
+			err = r.compiledSchema.ProcessRow(fieldData, nulls)
+			if err != nil {
+				r.err = err
+				return rowCount
+			}
+			rowCount++
+			// accumulatedBytes not updated since we break immediately
+			break
+		}
+
 		// Direct writing to compiled column writers
 		err = r.compiledSchema.ProcessRow(fieldData, nulls)
 		if err != nil {
@@ -123,8 +147,25 @@ func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
 		}
 
 		rowCount++
+		accumulatedBytes += rowBytes
 	}
 	return rowCount
+}
+
+// calculateRowByteSize estimates the byte size of a row based on field data
+// This provides the byte tracking needed for ADBC-style batch sizing
+func calculateRowByteSize(fieldData [][]byte, nulls []bool) int {
+	totalBytes := 0
+	for i, data := range fieldData {
+		if nulls[i] {
+			// Null values take minimal space (just the null indicator)
+			totalBytes += 1
+		} else {
+			// Data size plus some overhead for Arrow array storage
+			totalBytes += len(data) + ArrowFieldMetadataOverhead
+		}
+	}
+	return totalBytes
 }
 
 // PGArrowRecordReader implements array.RecordReader for streaming PostgreSQL data
@@ -141,7 +182,12 @@ type PGArrowRecordReader struct {
 	currentRecord arrow.Record
 	err           error
 	released      bool
-	batchSize     int
+
+	// Byte-based batching (ADBC approach)
+	batchSizeBytes int // Target batch size in bytes
+
+	// Legacy row-based batching (deprecated)
+	batchSize int // For compatibility with existing code
 }
 
 // newCompiledRecordReader creates a new PGArrowRecordReader using an existing CompiledSchema.
@@ -159,7 +205,8 @@ func newCompiledRecordReader(compiledSchema *CompiledSchema, conn *pgxpool.Conn,
 		conn:           conn,
 		pipeReader:     pipeReader,
 		copyDone:       copyDone,
-		batchSize:      OptimalBatchSizeGo, // Go-optimized batch size for GC and cache efficiency
+		batchSizeBytes: DefaultBatchSizeBytes, // ADBC-style byte-based batching (16MB)
+		batchSize:      OptimalBatchSizeGo,    // Legacy row-based fallback for compatibility
 	}, nil
 }
 
