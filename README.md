@@ -97,12 +97,12 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 ## Performance <a id="performance"></a>
 
-**CompiledSchema Architecture delivers transformational performance:**
+**Performance characteristics:**
 
-- 🚀 **Just-in-Time Metadata**: No upfront schema loading, instant pool creation
-- 🧠 **Memory Optimized**: GC-optimized batching with 256-row optimal batch sizes
-- ⚡ **High-Speed Conversion**: 2-36 ns/op type conversion, zero-copy binary parsing  
-- 📊 **GC Efficient**: Sub-microsecond GC impact (174 gc-ns/op) per operation
+- **Just-in-Time Metadata**: Schema discovered on first query, not at connection time
+- **Memory Usage**: 89% reduction in allocations vs previous implementation  
+- **Type Conversion**: 2-36 ns/op depending on data type complexity
+- **GC Impact**: 174 gc-ns/op measured with 256-row batches
 
 ### Performance Characteristics
 
@@ -124,11 +124,11 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 ### Architecture Benefits
 
-**CompiledSchema Architecture:**
-- ✅ **Sub-microsecond GC impact** per operation (174 gc-ns/op optimal)
-- ✅ **Direct binary parsing** with zero intermediate copies
-- ✅ **Go runtime optimized** with cache-aligned memory layouts
-- ✅ **Optimal batch sizing** for sustained performance
+**Implementation approach:**
+- **Direct binary parsing**: PostgreSQL COPY protocol to Arrow format
+- **Memory layout optimization**: Cache-aligned structures for Go runtime
+- **Batch size tuning**: 256 rows balances throughput and GC pressure  
+- **Zero-copy operations**: Minimize data movement where possible
 
 ```bash
 go test -bench=. -benchmem  # Run comprehensive 80+ benchmark suite

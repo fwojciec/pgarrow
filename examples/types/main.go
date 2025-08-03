@@ -32,13 +32,13 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	fmt.Println("=== PGArrow Comprehensive Data Types Demo ===")
-	fmt.Println("CompiledSchema Architecture: 54% faster execution than previous implementation")
-	fmt.Println("Memory Optimized: 89% memory reduction, 75% fewer allocations")
-	fmt.Println("GC Efficient: Sub-microsecond GC impact (174 gc-ns/op) with optimal batching")
+	fmt.Println("=== PGArrow Data Types Demo ===")
+	fmt.Println("Performance: 54% faster execution than previous implementation")
+	fmt.Println("Memory usage: 89% reduction in allocations, 75% fewer allocs/op")
+	fmt.Println("GC impact: 174 gc-ns/op measured with 256-row batches")
 	fmt.Println()
 
-	// Demonstrate all 17 supported types with optimal binary parsing
+	// Demonstrate all 17 supported types
 	if err := demonstrateAllTypes(ctx, pool); err != nil {
 		fmt.Printf("All types demo failed: %v\n", err)
 		return
@@ -50,17 +50,17 @@ func main() {
 		return
 	}
 
-	// Demonstrate mixed data with optimal batch processing
+	// Demonstrate mixed data processing
 	if err := demonstrateMixedData(ctx, pool); err != nil {
 		fmt.Printf("Mixed data demo failed: %v\n", err)
 		return
 	}
 
 	fmt.Println("\nPGArrow types example completed successfully!")
-	fmt.Printf("✓ 17 PostgreSQL types → Arrow native format\n")
-	fmt.Printf("✓ Type conversion performance: 2-36 ns/op depending on complexity\n")
-	fmt.Printf("✓ Memory efficient: Zero-copy binary data handling\n")
-	fmt.Printf("✓ Production ready: Comprehensive NULL handling and type safety\n")
+	fmt.Printf("✓ 17 PostgreSQL types → Arrow format conversion\n")
+	fmt.Printf("✓ Type conversion performance: 2-36 ns/op measured\n")
+	fmt.Printf("✓ Zero-copy binary data handling where possible\n")
+	fmt.Printf("✓ NULL handling and type safety included\n")
 }
 
 func setupPool(alloc memory.Allocator) (*pgarrow.Pool, error) {
@@ -69,8 +69,7 @@ func setupPool(alloc memory.Allocator) (*pgarrow.Pool, error) {
 		return nil, fmt.Errorf("DATABASE_URL environment variable is required")
 	}
 
-	// Create pool with CompiledSchema architecture for optimal performance
-	// Just-in-time metadata discovery enables instant connections (~10μs)
+	// Create pool with just-in-time metadata discovery
 	pool, err := pgarrow.NewPool(context.Background(), databaseURL, pgarrow.WithAllocator(alloc))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pool: %w", err)

@@ -162,12 +162,12 @@ PGArrow types example completed successfully!
 
 ## Performance Notes
 
-PGArrow's CompiledSchema architecture delivers exceptional performance:
+PGArrow performance characteristics:
 
 ### Architecture Benefits
 - **Built on pgx**: Uses proven PostgreSQL driver as foundation
-- **Just-in-time metadata**: No expensive upfront schema queries  
-- **Pool-based design**: Efficient connection management
+- **Just-in-time metadata**: Schema discovered on first query, not at connection time
+- **Pool-based design**: Uses pgxpool for connection management
 
 ### Memory Efficiency  
 - **Current**: 38,284 B/op, 1,538 allocs/op (optimized implementation)
@@ -184,7 +184,7 @@ PGArrow's CompiledSchema architecture delivers exceptional performance:
 - **Zero allocations** for most primitive type conversions
 
 ### Architecture Benefits
-- **CompiledSchema**: 54% faster execution than previous implementation
+- **Current implementation**: 54% faster execution than previous version
 - **Pure Go**: Zero CGO dependencies, easy deployment
 - **Arrow Native**: Direct Arrow record output, ready for analytical workloads
 

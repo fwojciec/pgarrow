@@ -21,7 +21,7 @@ go test -bench=BenchmarkGCPressureReduction -run=^$ -memprofile=mem.prof
 ## Benchmark Categories
 
 ### 1. Column Writer Performance
-Ultra-fast type-specific column writers optimized for Arrow format:
+Type-specific column writers for Arrow format conversion:
 
 - `BenchmarkBoolColumnWriter` - Boolean type conversion (~5.4 ns/op, 0 allocs)
 - `BenchmarkInt16ColumnWriter` - 16-bit integers (~5.5 ns/op, 0 allocs)  
@@ -68,7 +68,7 @@ CompiledSchema memory optimization results:
 |----------|-------|----------|------|-----------|-------------|
 | **With Optimizations** | **56,318** | **456.0** | **38,284** | **1,538** | **Baseline** |
 | Without Optimizations | 123,017 | 3,285 | 354,954 | 6,145 | - |
-| **Improvement** | **54% faster** | **86% less GC** | **89% less memory** | **75% fewer allocs** | **Significant** |
+| **Difference** | **54% faster** | **86% less GC** | **89% less memory** | **75% fewer allocs** | - |
 
 ### 5. End-to-End Performance Comparisons
 PGArrow vs pgx text format parsing:
@@ -86,7 +86,7 @@ PGArrow vs pgx text format parsing:
 | All Supported Types | 389,588 | 148,452 | 2.6x processing overhead* |
 | Mixed with NULLs | 402,597 | 147,149 | 2.7x processing overhead* |
 
-*Note: PGArrow performs full binary-to-Arrow conversion while pgx only parses to Go types. The overhead includes Arrow record construction, which provides significant downstream benefits for analytical workloads.
+*Note: PGArrow performs full binary-to-Arrow conversion while pgx only parses to Go types. The overhead includes Arrow record construction, which enables downstream analytical processing.
 
 #### Memory Usage (100 rows)
 - **PGArrow**: 27,725 B/op, 904 allocs/op
@@ -179,15 +179,15 @@ The benchmarks directly test the core CompiledSchema conversion pipeline:
 4. **Arrow Record Construction** → Columnar array building with optimal batching
 5. **Memory Management** → GC-optimized allocation patterns and cleanup
 
-This architecture delivers exceptional performance for analytical workloads while maintaining the developer experience of standard Go database drivers.
+This architecture optimizes for analytical workloads while maintaining compatibility with standard Go database patterns.
 
 ## Performance Summary
 
-**CompiledSchema delivers exceptional performance:**
-- **Memory Efficiency**: 89% memory reduction, 75% fewer allocations vs previous implementation
-- **Processing Speed**: Sub-microsecond per-operation GC impact (174 gc-ns/op)
-- **Type Conversion**: 2-36 ns/op depending on complexity with zero-copy optimizations
-- **Scalability**: Linear performance scaling with optimal batch sizes (256 rows)
-- **Analytical Ready**: Direct Arrow format output eliminates downstream conversion overhead
+**Measured performance characteristics:**
+- **Memory usage**: 89% reduction in allocations, 75% fewer allocs/op vs previous implementation
+- **GC impact**: 174 gc-ns/op measured with 256-row batches
+- **Type conversion**: 2-36 ns/op depending on data type complexity
+- **Batch processing**: Linear scaling with 256-row optimal batch size
+- **Output format**: Direct Arrow records for analytical processing
 
-These metrics demonstrate PGArrow's position as a high-performance solution for PostgreSQL-to-Arrow analytical pipelines.
+These measurements provide objective data for evaluating PGArrow in PostgreSQL-to-Arrow use cases.

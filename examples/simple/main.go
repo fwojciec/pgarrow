@@ -38,13 +38,13 @@ func main() {
 		return
 	}
 
-	// Example with realistic table data and optimal batch processing (256 rows)
+	// Example with table data and batch processing
 	if err := runTableQuery(ctx, pool); err != nil {
 		fmt.Printf("Table query failed: %v\n", err)
 		return
 	}
 
-	// Demonstrate comprehensive NULL handling across all data types
+	// Demonstrate NULL handling
 	if err := runNullHandlingQuery(ctx, pool); err != nil {
 		fmt.Printf("NULL handling query failed: %v\n", err)
 		return
@@ -62,8 +62,7 @@ func setupSimplePool(alloc memory.Allocator) (*pgarrow.Pool, error) {
 		return nil, fmt.Errorf("DATABASE_URL environment variable is required")
 	}
 
-	// Create pool with optimal CompiledSchema configuration
-	// Fast connection establishment (~10μs) with just-in-time metadata discovery
+	// Create pool with just-in-time metadata discovery
 	pool, err := pgarrow.NewPool(context.Background(), databaseURL, pgarrow.WithAllocator(alloc))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pool: %w", err)
