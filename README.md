@@ -1,5 +1,7 @@
 # PGArrow
 
+[![CI](https://github.com/fwojciec/pgarrow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fwojciec/pgarrow/actions/workflows/ci.yml)
+
 **Fast PostgreSQL → Apache Arrow conversion in pure Go**
 
 Zero-CGO library that streams PostgreSQL query results directly to Arrow format using binary protocol. Perfect for analytical workloads, data pipelines, and Arrow ecosystem integration.
