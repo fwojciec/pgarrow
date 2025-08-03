@@ -59,7 +59,7 @@ func oidToArrowType(oid uint32) (arrow.DataType, error) {
 	case TypeOIDTime:
 		return arrow.FixedWidthTypes.Time64us, nil
 	case TypeOIDTimestamp:
-		return &arrow.TimestampType{Unit: arrow.Microsecond}, nil
+		return &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: ""}, nil
 	case TypeOIDTimestamptz:
 		return &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}, nil
 	case TypeOIDInterval:

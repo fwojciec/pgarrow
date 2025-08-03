@@ -15,13 +15,19 @@ Strategic guidance for LLMs working with this codebase.
 
 **Quality Philosophy**: **Process over polish** - systematic validation results in quality rather than fixing issues post-hoc.
 
-**Safety Philosophy**: **Memory safety over micro-optimization** - use safe standard library approaches unless unsafe provides critical performance benefits that justify the risks. When unsafe is considered, document the trade-offs explicitly and evaluate safe alternatives first.
+**Safety Philosophy**: **Memory safety over micro-optimization** - prefer safe approaches unless unsafe provides critical performance benefits. Document trade-offs explicitly.
 
-**Documentation Philosophy**: **Objectivity over marketing** - provide measurable facts that enable informed decisions rather than promotional language.
+**Documentation Philosophy**: **Objectivity over marketing** - measurable facts, not promotional language.
 
 ## Quality-First Development
 
 **Feedback Loops**: TDD → Systematic Validation → Continuous Integration → Performance Baselines
+
+## Learning Capture
+
+**Tests as institutional memory** - when discovering edge cases from bug reports or PR reviews, immediately create tests that would have caught the issue. Document the "why" in test comments.
+
+**Standard Practice**: Issue → Test (should fail) → Fix → `make validate`
 
 ## Architecture Patterns
 
@@ -36,21 +42,9 @@ Strategic guidance for LLMs working with this codebase.
 
 ## Documentation Standards
 
-**Objective Tone**: Present measurable facts, not marketing claims
-- ✅ "89% reduction in allocations vs previous implementation"
-- ✅ "2-36 ns/op measured depending on data type complexity" 
-- ✅ "Uses pgx internally with Arrow format optimization"
-- ❌ "delivers exceptional performance", "ultra-fast", "revolutionary"
-
-**Honest Comparisons**: Compare comparable things with clear context
-- ✅ PGArrow vs previous PGArrow implementation (fair baseline)
-- ✅ PGArrow vs pgx with clear notes about different use cases
-- ❌ Pool creation vs actual connection establishment (apples-to-oranges)
-
-**Verifiable Claims**: All performance statements must be backed by benchmarks
-- Link to specific benchmark functions where possible
-- Include measurement conditions and context
-- Acknowledge limitations and trade-offs
+**Objective Tone**: Measurable facts, not marketing claims ("89% reduction" vs "ultra-fast")
+**Honest Comparisons**: Compare equivalent scenarios with clear context  
+**Verifiable Claims**: Back performance statements with benchmarks, include conditions and limitations
 
 ## Essential Commands
 
