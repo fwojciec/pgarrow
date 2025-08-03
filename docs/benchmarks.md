@@ -18,6 +18,42 @@ go test -bench=BenchmarkMemoryUsage -run=^$ -cpuprofile=cpu.prof
 go test -bench=BenchmarkGCPressureReduction -run=^$ -memprofile=mem.prof
 ```
 
+## Benchmark Environment
+
+All performance measurements were recorded under the following standardized conditions:
+
+### **Hardware Specifications**
+- **CPU**: Apple M1 (ARM64 architecture)
+- **Memory**: 16 GB unified memory
+- **Storage**: SSD (NVMe)
+- **System**: MacBook Air M1
+
+### **Software Environment**
+- **Operating System**: macOS 15.5 (Darwin 24.5.0)
+- **Go Version**: 1.24.5 darwin/arm64
+- **PostgreSQL**: 15-alpine (Docker containerized)
+- **Docker Environment**: Local development setup
+
+### **PostgreSQL Configuration**
+- **Version**: PostgreSQL 15 (Alpine Linux container)
+- **Container Setup**: Local Docker instance
+- **Connection**: Local network (minimal latency)
+- **Default Configuration**: Standard PostgreSQL 15 settings
+
+### **Benchmark Methodology**
+- **Execution**: `go test -bench=. -benchmem -cpu=1`
+- **Warm-up**: Each benchmark includes Go's standard warm-up iterations
+- **Measurement**: Multiple runs averaged using Go's built-in benchmarking
+- **Memory Tracking**: `-benchmem` flag for allocation tracking
+- **GC Measurement**: Custom gc-ns/op metrics using runtime.GC() timing
+
+### **Reproducibility Notes**
+- Results may vary on different hardware architectures (x86_64 vs ARM64)
+- Network latency to PostgreSQL affects connection benchmarks
+- Go version and compiler optimizations impact performance
+- Docker overhead minimal for CPU-bound operations
+- Memory allocation patterns may differ across Go versions
+
 ## Benchmark Categories
 
 ### 1. Column Writer Performance
