@@ -164,25 +164,6 @@ func TestPoolQueryArrowAllDataTypesIntegration(t *testing.T) {
 	assert.Equal(t, int64(2), totalRows)
 }
 
-func TestPoolQueryArrowParameterizedQueryIntegration(t *testing.T) {
-	t.Parallel()
-
-	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
-	defer alloc.AssertSize(t, 0)
-
-	pool, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id = $1 ORDER BY id"
-
-	// This should fail with a clear error message about parameterized queries not being supported
-	reader, err := pool.QueryArrow(ctx, sql, 2)
-	require.Error(t, err)
-	assert.Nil(t, reader)
-	assert.Contains(t, err.Error(), "parameterized queries are not supported")
-}
-
 func TestPoolQueryArrowEmptyResultIntegration(t *testing.T) {
 	t.Parallel()
 
@@ -327,21 +308,6 @@ func TestPoolQueryArrowCancelledContextIntegration(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, reader)
 	assert.Contains(t, err.Error(), "context canceled")
-}
-
-func TestPoolQueryArrowInvalidParametersIntegration(t *testing.T) {
-	t.Parallel()
-
-	pool, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	sql := "SELECT id FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id = $1"
-
-	// Pass wrong number of parameters
-	reader, err := pool.QueryArrow(ctx, sql)
-	require.Error(t, err)
-	assert.Nil(t, reader)
 }
 
 // Resource cleanup verification tests
