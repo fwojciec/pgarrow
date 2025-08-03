@@ -110,9 +110,11 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 - **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
 
 **Type Conversion Speed:**
-- **Primitive types** (bool, integers, floats): 2-9 ns/op, zero allocations
-- **String types**: 12.7 ns/op, zero allocations with memory-safe buffer management
-- **Complex types** (intervals, timestamps): 12-13 ns/op
+- **Primitive types** (bool, integers, floats): 2-9 ns/op, zero heap allocations
+- **String types**: 12.7 ns/op, zero heap allocations with memory-safe buffer management
+- **Complex types** (intervals, timestamps): 12-13 ns/op, zero heap allocations
+
+All 17 supported PostgreSQL data types achieve zero heap allocations during Arrow conversion.
 
 **Memory Efficiency:**
 - **Current implementation**: 38,284 B/op, 1,538 allocs/op (optimized)
