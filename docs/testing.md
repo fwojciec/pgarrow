@@ -15,7 +15,7 @@ PGArrow uses a comprehensive table-based integration testing approach inspired b
 
 The main comprehensive test (`TestQueryArrowDataTypes` in `integration_test.go`) covers:
 
-- **All supported data types**: `bool`, `int2`, `int4`, `int8`, `float4`, `float8`, `text`
+- **All supported data types**: All 17 PostgreSQL types including `bool`, `bytea`, integers, floats, text types, and temporal types
 - **Edge cases**: Min/max values, precision limits, special float values (NaN, Infinity)
 - **NULL handling**: Comprehensive NULL testing across all data types
 - **Mixed type queries**: Complex queries with multiple data types
