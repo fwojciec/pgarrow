@@ -1,4 +1,7 @@
-package experimental
+//go:build integration
+// +build integration
+
+package experimental_test
 
 import (
 	"context"
@@ -8,6 +11,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow/memory"
+	"github.com/fwojciec/pgarrow/experimental"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -30,7 +34,7 @@ func BenchmarkDirectV3Performance(b *testing.B) {
 
 	// Warm up
 	warmupQuery := fmt.Sprintf("%s LIMIT 1000", query)
-	record, err := QueryArrowDirectV3(ctx, conn, warmupQuery, alloc)
+	record, err := experimental.QueryArrowDirectV3(ctx, conn, warmupQuery, alloc)
 	if err != nil {
 		b.Fatalf("Warmup failed: %v", err)
 	}
@@ -39,7 +43,7 @@ func BenchmarkDirectV3Performance(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		record, err := QueryArrowDirectV3(ctx, conn, query, alloc)
+		record, err := experimental.QueryArrowDirectV3(ctx, conn, query, alloc)
 		if err != nil {
 			b.Fatalf("Query failed: %v", err)
 		}
@@ -54,6 +58,7 @@ func BenchmarkDirectV3Performance(b *testing.B) {
 
 // TestDirectV3PerformanceMetrics provides detailed performance metrics
 func TestDirectV3PerformanceMetrics(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Database connection
@@ -78,7 +83,7 @@ func TestDirectV3PerformanceMetrics(t *testing.T) {
 
 	start := time.Now()
 
-	record, err := QueryArrowDirectV3(ctx, conn, query, alloc)
+	record, err := experimental.QueryArrowDirectV3(ctx, conn, query, alloc)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}

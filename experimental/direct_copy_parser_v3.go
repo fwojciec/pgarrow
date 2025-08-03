@@ -152,116 +152,154 @@ func (p *DirectCopyParserV3) processCopyData(data []byte) error {
 
 	// Parse header if not done
 	if !p.headerParsed {
-		if p.buffer.Len() < 19 {
-			return nil // Need more data for header
-		}
-
-		headerBytes := make([]byte, 19)
-		if _, err := p.buffer.Read(headerBytes); err != nil {
+		if err := p.parseHeader(); err != nil {
 			return err
 		}
-
-		// Verify magic bytes "PGCOPY\n\377\r\n\000"
-		expected := []byte("PGCOPY\n\377\r\n\000")
-		if string(headerBytes[:11]) != string(expected) {
-			return errors.New("invalid COPY binary format header")
+		if !p.headerParsed {
+			return nil // Need more data
 		}
-
-		p.headerParsed = true
 	}
 
 	// Process rows from buffer
-	for p.buffer.Len() >= 2 { // Need at least field count
-		// Mark current position for potential rollback
-		tempBuf := bytes.NewBuffer(p.buffer.Bytes())
+	for p.buffer.Len() >= 2 {
+		if err := p.processNextRow(); err != nil {
+			return err
+		}
+		if p.buffer.Len() < 2 {
+			break // No more complete rows
+		}
+	}
 
-		// Read field count
-		fieldCountBytes := make([]byte, 2)
-		if _, err := tempBuf.Read(fieldCountBytes); err != nil {
-			return nil // Wait for more data
+	return nil
+}
+
+// parseHeader parses the COPY binary format header
+func (p *DirectCopyParserV3) parseHeader() error {
+	if p.buffer.Len() < 19 {
+		return nil // Need more data for header
+	}
+
+	headerBytes := make([]byte, 19)
+	if _, err := p.buffer.Read(headerBytes); err != nil {
+		return err
+	}
+
+	// Verify magic bytes "PGCOPY\n\377\r\n\000"
+	expected := []byte("PGCOPY\n\377\r\n\000")
+	if string(headerBytes[:11]) != string(expected) {
+		return errors.New("invalid COPY binary format header")
+	}
+
+	p.headerParsed = true
+	return nil
+}
+
+// processNextRow processes the next row from the buffer
+func (p *DirectCopyParserV3) processNextRow() error {
+	// Check if we have a complete row
+	fieldCount, hasCompleteRow := p.checkCompleteRow()
+	if !hasCompleteRow {
+		return nil // Wait for more data
+	}
+
+	// Check for end-of-data marker (-1)
+	if fieldCount == -1 {
+		p.buffer.Next(2) // Consume the marker
+		return nil
+	}
+
+	if int(fieldCount) != len(p.builders) {
+		return fmt.Errorf("field count mismatch: got %d, expected %d", fieldCount, len(p.builders))
+	}
+
+	// We have a complete row, process it
+	p.buffer.Next(2) // Consume field count
+
+	// Parse each field
+	for i := 0; i < int(fieldCount); i++ {
+		if err := p.parseField(i); err != nil {
+			return err
+		}
+	}
+
+	p.rowsProcessed++
+	return nil
+}
+
+// checkCompleteRow checks if buffer contains a complete row
+func (p *DirectCopyParserV3) checkCompleteRow() (int16, bool) {
+	if p.buffer.Len() < 2 {
+		return 0, false
+	}
+
+	// Mark current position for potential rollback
+	tempBuf := bytes.NewBuffer(p.buffer.Bytes())
+
+	// Read field count
+	fieldCountBytes := make([]byte, 2)
+	if _, err := tempBuf.Read(fieldCountBytes); err != nil {
+		return 0, false
+	}
+
+	fieldCount := int16(binary.BigEndian.Uint16(fieldCountBytes))
+
+	// Check for end-of-data marker
+	if fieldCount == -1 {
+		return -1, true
+	}
+
+	// Check if we have complete row data
+	for i := 0; i < int(fieldCount); i++ {
+		if tempBuf.Len() < 4 {
+			return 0, false
 		}
 
-		fieldCount := int16(binary.BigEndian.Uint16(fieldCountBytes))
-
-		// Check for end-of-data marker (-1)
-		if fieldCount == -1 {
-			p.buffer.Next(2) // Consume the marker
-			return nil
+		lengthBytes := make([]byte, 4)
+		if _, err := tempBuf.Read(lengthBytes); err != nil {
+			return 0, false
 		}
 
-		if int(fieldCount) != len(p.builders) {
-			return fmt.Errorf("field count mismatch: got %d, expected %d", fieldCount, len(p.builders))
+		fieldLen := int32(binary.BigEndian.Uint32(lengthBytes))
+		if fieldLen > 0 {
+			if tempBuf.Len() < int(fieldLen) {
+				return 0, false
+			}
+			tempBuf.Next(int(fieldLen))
 		}
+	}
 
-		// Check if we have complete row data
-		rowComplete := true
-		tempPos := 2 // Already read field count
+	return fieldCount, true
+}
 
-		for i := 0; i < int(fieldCount); i++ {
-			if tempBuf.Len() < 4 {
-				rowComplete = false
-				break
-			}
+// parseField parses a single field from the buffer
+func (p *DirectCopyParserV3) parseField(fieldIndex int) error {
+	lengthBytes := make([]byte, 4)
+	if _, err := p.buffer.Read(lengthBytes); err != nil {
+		return err
+	}
 
-			lengthBytes := make([]byte, 4)
-			if _, err := tempBuf.Read(lengthBytes); err != nil {
-				rowComplete = false
-				break
-			}
-			tempPos += 4
+	fieldLen := int32(binary.BigEndian.Uint32(lengthBytes))
 
-			fieldLen := int32(binary.BigEndian.Uint32(lengthBytes))
-			if fieldLen > 0 {
-				if tempBuf.Len() < int(fieldLen) {
-					rowComplete = false
-					break
-				}
-				tempBuf.Next(int(fieldLen))
-				tempPos += int(fieldLen)
-			}
-		}
+	// Handle NULL
+	if fieldLen == -1 {
+		p.builders[fieldIndex].AppendNull()
+		return nil
+	}
 
-		if !rowComplete {
-			// Not enough data for complete row, wait for more
-			return nil
-		}
+	// Read field data
+	if cap(p.fieldBuf) < int(fieldLen) {
+		p.fieldBuf = make([]byte, fieldLen)
+	} else {
+		p.fieldBuf = p.fieldBuf[:fieldLen]
+	}
 
-		// We have a complete row, process it from the actual buffer
-		p.buffer.Next(2) // Consume field count
+	if _, err := p.buffer.Read(p.fieldBuf); err != nil {
+		return err
+	}
 
-		// Parse each field
-		for i := 0; i < int(fieldCount); i++ {
-			lengthBytes := make([]byte, 4)
-			if _, err := p.buffer.Read(lengthBytes); err != nil {
-				return err
-			}
-
-			fieldLen := int32(binary.BigEndian.Uint32(lengthBytes))
-
-			// Handle NULL
-			if fieldLen == -1 {
-				p.builders[i].AppendNull()
-				continue
-			}
-
-			// Read field data
-			if cap(p.fieldBuf) < int(fieldLen) {
-				p.fieldBuf = make([]byte, fieldLen)
-			} else {
-				p.fieldBuf = p.fieldBuf[:fieldLen]
-			}
-
-			if _, err := p.buffer.Read(p.fieldBuf); err != nil {
-				return err
-			}
-
-			// Parse directly to builder
-			if err := p.scanPlans[i].ScanToBuilder(p.fieldBuf, p.builders[i]); err != nil {
-				return fmt.Errorf("scanning field %d: %w", i, err)
-			}
-		}
-
-		p.rowsProcessed++
+	// Parse directly to builder
+	if err := p.scanPlans[fieldIndex].ScanToBuilder(p.fieldBuf, p.builders[fieldIndex]); err != nil {
+		return fmt.Errorf("scanning field %d: %w", fieldIndex, err)
 	}
 
 	return nil
@@ -294,7 +332,11 @@ func (scanPlanInt64) RequiredBytes() int { return 8 }
 
 func (scanPlanInt64) ScanToBuilder(data []byte, builder array.Builder) error {
 	value := int64(binary.BigEndian.Uint64(data))
-	builder.(*array.Int64Builder).Append(value)
+	b, ok := builder.(*array.Int64Builder)
+	if !ok {
+		return fmt.Errorf("expected *array.Int64Builder, got %T", builder)
+	}
+	b.Append(value)
 	return nil
 }
 
@@ -305,7 +347,11 @@ func (scanPlanFloat64) RequiredBytes() int { return 8 }
 func (scanPlanFloat64) ScanToBuilder(data []byte, builder array.Builder) error {
 	bits := binary.BigEndian.Uint64(data)
 	value := math.Float64frombits(bits)
-	builder.(*array.Float64Builder).Append(value)
+	b, ok := builder.(*array.Float64Builder)
+	if !ok {
+		return fmt.Errorf("expected *array.Float64Builder, got %T", builder)
+	}
+	b.Append(value)
 	return nil
 }
 
@@ -315,7 +361,11 @@ func (scanPlanBool) RequiredBytes() int { return 1 }
 
 func (scanPlanBool) ScanToBuilder(data []byte, builder array.Builder) error {
 	value := data[0] != 0
-	builder.(*array.BooleanBuilder).Append(value)
+	b, ok := builder.(*array.BooleanBuilder)
+	if !ok {
+		return fmt.Errorf("expected *array.BooleanBuilder, got %T", builder)
+	}
+	b.Append(value)
 	return nil
 }
 
@@ -325,7 +375,11 @@ func (scanPlanString) RequiredBytes() int { return -1 } // Variable length
 
 func (scanPlanString) ScanToBuilder(data []byte, builder array.Builder) error {
 	// PostgreSQL TEXT is already UTF-8
-	builder.(*array.StringBuilder).Append(string(data))
+	b, ok := builder.(*array.StringBuilder)
+	if !ok {
+		return fmt.Errorf("expected *array.StringBuilder, got %T", builder)
+	}
+	b.Append(string(data))
 	return nil
 }
 
@@ -344,7 +398,11 @@ func (scanPlanDate32) ScanToBuilder(data []byte, builder array.Builder) error {
 	const pgEpochOffset = 10957
 	arrowDays := pgDays + pgEpochOffset
 
-	builder.(*array.Date32Builder).Append(arrow.Date32(arrowDays))
+	b, ok := builder.(*array.Date32Builder)
+	if !ok {
+		return fmt.Errorf("expected *array.Date32Builder, got %T", builder)
+	}
+	b.Append(arrow.Date32(arrowDays))
 	return nil
 }
 
@@ -354,7 +412,11 @@ func (scanPlanInt32) RequiredBytes() int { return 4 }
 
 func (scanPlanInt32) ScanToBuilder(data []byte, builder array.Builder) error {
 	value := int32(binary.BigEndian.Uint32(data))
-	builder.(*array.Int32Builder).Append(value)
+	b, ok := builder.(*array.Int32Builder)
+	if !ok {
+		return fmt.Errorf("expected *array.Int32Builder, got %T", builder)
+	}
+	b.Append(value)
 	return nil
 }
 
@@ -364,7 +426,11 @@ func (scanPlanInt16) RequiredBytes() int { return 2 }
 
 func (scanPlanInt16) ScanToBuilder(data []byte, builder array.Builder) error {
 	value := int16(binary.BigEndian.Uint16(data))
-	builder.(*array.Int16Builder).Append(value)
+	b, ok := builder.(*array.Int16Builder)
+	if !ok {
+		return fmt.Errorf("expected *array.Int16Builder, got %T", builder)
+	}
+	b.Append(value)
 	return nil
 }
 
@@ -375,7 +441,11 @@ func (scanPlanFloat32) RequiredBytes() int { return 4 }
 func (scanPlanFloat32) ScanToBuilder(data []byte, builder array.Builder) error {
 	bits := binary.BigEndian.Uint32(data)
 	value := math.Float32frombits(bits)
-	builder.(*array.Float32Builder).Append(value)
+	b, ok := builder.(*array.Float32Builder)
+	if !ok {
+		return fmt.Errorf("expected *array.Float32Builder, got %T", builder)
+	}
+	b.Append(value)
 	return nil
 }
 
@@ -391,7 +461,11 @@ func (scanPlanTimestamp) ScanToBuilder(data []byte, builder array.Builder) error
 	pgEpoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	unixMicros := pgEpoch.UnixMicro() + pgMicros
 
-	builder.(*array.TimestampBuilder).Append(arrow.Timestamp(unixMicros))
+	b, ok := builder.(*array.TimestampBuilder)
+	if !ok {
+		return fmt.Errorf("expected *array.TimestampBuilder, got %T", builder)
+	}
+	b.Append(arrow.Timestamp(unixMicros))
 	return nil
 }
 
@@ -422,7 +496,7 @@ func createScanPlan(dataType arrow.DataType) (CopyScanPlan, error) {
 }
 
 // pgTypeToArrow converts PostgreSQL type OID to Arrow type
-func pgTypeToArrow(oid uint32) (arrow.DataType, error) {
+func pgTypeToArrow(oid uint32) arrow.DataType {
 	// PostgreSQL type OIDs
 	const (
 		BOOLOID        = 16
@@ -440,26 +514,26 @@ func pgTypeToArrow(oid uint32) (arrow.DataType, error) {
 
 	switch oid {
 	case BOOLOID:
-		return arrow.FixedWidthTypes.Boolean, nil
+		return arrow.FixedWidthTypes.Boolean
 	case INT2OID:
-		return arrow.PrimitiveTypes.Int16, nil
+		return arrow.PrimitiveTypes.Int16
 	case INT4OID:
-		return arrow.PrimitiveTypes.Int32, nil
+		return arrow.PrimitiveTypes.Int32
 	case INT8OID:
-		return arrow.PrimitiveTypes.Int64, nil
+		return arrow.PrimitiveTypes.Int64
 	case FLOAT4OID:
-		return arrow.PrimitiveTypes.Float32, nil
+		return arrow.PrimitiveTypes.Float32
 	case FLOAT8OID:
-		return arrow.PrimitiveTypes.Float64, nil
+		return arrow.PrimitiveTypes.Float64
 	case TEXTOID, VARCHAROID:
-		return arrow.BinaryTypes.String, nil
+		return arrow.BinaryTypes.String
 	case DATEOID:
-		return arrow.FixedWidthTypes.Date32, nil
+		return arrow.FixedWidthTypes.Date32
 	case TIMESTAMPOID, TIMESTAMPTZOID:
-		return arrow.FixedWidthTypes.Timestamp_us, nil
+		return arrow.FixedWidthTypes.Timestamp_us
 	default:
 		// Default to string for unknown types
-		return arrow.BinaryTypes.String, nil
+		return arrow.BinaryTypes.String
 	}
 }
 
@@ -476,11 +550,7 @@ func QueryArrowDirectV3(ctx context.Context, conn *pgx.Conn, query string, alloc
 	fields := make([]arrow.Field, len(fieldDescs))
 
 	for i, fd := range fieldDescs {
-		arrowType, err := pgTypeToArrow(fd.DataTypeOID)
-		if err != nil {
-			rows.Close()
-			return nil, fmt.Errorf("converting type for field %s: %w", fd.Name, err)
-		}
+		arrowType := pgTypeToArrow(fd.DataTypeOID)
 		fields[i] = arrow.Field{
 			Name:     fd.Name,
 			Type:     arrowType,
