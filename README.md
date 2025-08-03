@@ -105,13 +105,13 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 - **GC Impact**: 174 gc-ns/op measured with 256-row batches
 
 **Architecture:**
-- **Uses pgx internally**: Built on proven PostgreSQL driver foundation
+- **Built on proven foundations**: [pgx](https://github.com/jackc/pgx) for PostgreSQL connectivity + [Apache Arrow Go](https://github.com/apache/arrow-go) for columnar format
 - **Just-in-time metadata discovery**: No expensive upfront schema queries
 - **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
 
 **Type Conversion Speed:**
 - **Primitive types** (bool, integers, floats): 2-9 ns/op, zero allocations
-- **String types**: 8.5 ns/op, zero allocations with optimized buffer management
+- **String types**: 12.7 ns/op, zero allocations with memory-safe buffer management
 - **Complex types** (intervals, timestamps): 12-13 ns/op
 
 **Memory Efficiency:**
@@ -174,6 +174,14 @@ While developed with rigorous quality processes, this software should be conside
 
 **🎯 Design decisions:**
 - **All columns marked nullable**: Arrow schema always shows `nullable=true` regardless of PostgreSQL `NOT NULL` constraints, optimizing for performance and compatibility with major Arrow engines (DuckDB, DataFusion, Polars) that ignore nullability metadata anyway ([research details](docs/nullability-tradeoff-research.md))
+
+---
+
+## Credits
+
+Built on top of exceptional open source projects:
+- **[pgx](https://github.com/jackc/pgx)** - PostgreSQL driver and toolkit for Go
+- **[Apache Arrow Go](https://github.com/apache/arrow-go)** - Go implementation of Apache Arrow columnar format
 
 ---
 

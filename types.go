@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"unsafe"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
@@ -1029,16 +1028,12 @@ func (w *StringColumnWriter) NewArray() arrow.Array {
 		return builder.NewArray()
 	}
 
-	// Create the final buffers
-	offsetBytes := (*(*[]byte)(unsafe.Pointer(&struct {
-		data uintptr
-		len  int
-		cap  int
-	}{
-		data: uintptr(unsafe.Pointer(&w.offsetSlice[0])),
-		len:  (w.length + 1) * 4, // int32 = 4 bytes
-		cap:  (w.length + 1) * 4,
-	})))
+	// Create the final buffers - safe conversion from []int32 to []byte
+	offsetCount := w.length + 1
+	offsetBytes := make([]byte, offsetCount*4)
+	for i := 0; i < offsetCount; i++ {
+		binary.LittleEndian.PutUint32(offsetBytes[i*4:], uint32(w.offsetSlice[i]))
+	}
 	offsetBuf := memory.NewBufferBytes(offsetBytes)
 
 	dataBuf := memory.NewBufferBytes(w.dataSlice[:w.dataSize])
@@ -1117,7 +1112,8 @@ func (w *StringColumnWriter) ensureOffsetBuffer(newLength int) {
 			copy(newOffsetBuf.Bytes(), w.offsetBuffer.Bytes()[:w.offsetBuffer.Len()])
 			w.offsetBuffer.Release()
 		} else {
-			*(*int32)(unsafe.Pointer(&newOffsetBuf.Bytes()[0])) = 0
+			// Initialize first offset to 0 using safe binary encoding
+			binary.LittleEndian.PutUint32(newOffsetBuf.Bytes()[0:4], 0)
 		}
 
 		w.offsetBuffer = newOffsetBuf
@@ -1180,15 +1176,19 @@ func (w *StringColumnWriter) ensureValidityBuffer(newLength, additionalItems int
 
 // updateOffsetSlice updates the offset slice after buffer reallocation
 func (w *StringColumnWriter) updateOffsetSlice(newOffsetCapacity int) {
-	w.offsetSlice = (*(*[]int32)(unsafe.Pointer(&struct {
-		data uintptr
-		len  int
-		cap  int
-	}{
-		data: uintptr(unsafe.Pointer(&w.offsetBuffer.Bytes()[0])),
-		len:  newOffsetCapacity / 4,
-		cap:  newOffsetCapacity / 4,
-	})))
+	// Safe conversion from buffer bytes back to []int32 slice
+	offsetCount := newOffsetCapacity / 4
+	if cap(w.offsetSlice) < offsetCount {
+		w.offsetSlice = make([]int32, offsetCount)
+	} else {
+		w.offsetSlice = w.offsetSlice[:offsetCount]
+	}
+
+	// Copy existing offset data from buffer
+	bufferBytes := w.offsetBuffer.Bytes()
+	for i := 0; i < len(w.offsetSlice) && i*4 < len(bufferBytes); i++ {
+		w.offsetSlice[i] = int32(binary.LittleEndian.Uint32(bufferBytes[i*4:]))
+	}
 }
 
 // updateValidityBitmap updates the validity bitmap for a batch of items
