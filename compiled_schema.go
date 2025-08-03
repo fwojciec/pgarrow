@@ -206,7 +206,7 @@ func (cs *CompiledSchema) buildArrayFromWriter(writer ColumnWriter) (arrow.Array
 	case *Float64ColumnWriter:
 		return w.Builder.NewArray(), nil
 	case *StringColumnWriter:
-		return w.NewArray(), nil
+		return w.NewArray()
 	case *BinaryColumnWriter:
 		return w.Builder.NewArray(), nil
 	case *Date32ColumnWriter:

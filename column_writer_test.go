@@ -268,7 +268,8 @@ func TestColumnWriter_ZeroCopyBehavior(t *testing.T) {
 		copy(data, "modified")
 
 		// Build array and check the stored value
-		arr := writer.NewArray()
+		arr, err := writer.NewArray()
+		require.NoError(t, err)
 		defer arr.Release()
 
 		stringArr, ok := arr.(*array.String)

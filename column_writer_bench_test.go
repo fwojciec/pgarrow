@@ -262,7 +262,10 @@ func BenchmarkStringColumnWriter(b *testing.B) {
 
 		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
-			arr := writer.NewArray()
+			arr, err := writer.NewArray()
+			if err != nil {
+				b.Fatal(err)
+			}
 			arr.Release()
 			writer.Reset()
 		}
@@ -287,7 +290,10 @@ func BenchmarkEndToEnd_ColumnWriter(b *testing.B) {
 
 		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
-			arr := writer.NewArray()
+			arr, err := writer.NewArray()
+			if err != nil {
+				b.Fatal(err)
+			}
 			arr.Release()
 			writer.Reset()
 		}
@@ -339,7 +345,10 @@ func BenchmarkBatch_ColumnWriter(b *testing.B) {
 		arr1.Release()
 		arr2 := int32Builder.NewArray()
 		arr2.Release()
-		arr3 := stringWriter.NewArray()
+		arr3, err := stringWriter.NewArray()
+		if err != nil {
+			b.Fatal(err)
+		}
 		arr3.Release()
 		stringWriter.Reset()
 	}

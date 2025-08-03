@@ -1020,19 +1020,23 @@ func (w *StringColumnWriter) PreAllocate(expectedBatchSize int) {
 }
 
 // NewArray creates an Arrow array from the accumulated data
-func (w *StringColumnWriter) NewArray() arrow.Array {
+func (w *StringColumnWriter) NewArray() (arrow.Array, error) {
 	if w.length == 0 {
 		// Return empty array
 		builder := array.NewStringBuilder(w.allocator)
 		defer builder.Release()
-		return builder.NewArray()
+		return builder.NewArray(), nil
 	}
 
 	// Create the final buffers - safe conversion from []int32 to []byte
 	offsetCount := w.length + 1
 	offsetBytes := make([]byte, offsetCount*4)
 	for i := 0; i < offsetCount; i++ {
-		binary.LittleEndian.PutUint32(offsetBytes[i*4:], uint32(w.offsetSlice[i]))
+		offset := w.offsetSlice[i]
+		if offset < 0 {
+			return nil, fmt.Errorf("StringColumnWriter: invalid negative offset %d at position %d", offset, i)
+		}
+		binary.LittleEndian.PutUint32(offsetBytes[i*4:], uint32(offset))
 	}
 	offsetBuf := memory.NewBufferBytes(offsetBytes)
 
@@ -1059,7 +1063,7 @@ func (w *StringColumnWriter) NewArray() arrow.Array {
 	// Reset the writer state (following Arrow's builder pattern)
 	w.Reset()
 
-	return arr
+	return arr, nil
 }
 
 // Reset resets the writer for reuse
