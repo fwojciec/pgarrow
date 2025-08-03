@@ -52,6 +52,12 @@ type ColumnWriter interface {
 
 	// BuilderStats returns current length and capacity for optimization insights
 	BuilderStats() (length, capacity int)
+
+	// SetBufferPool sets the buffer pool for memory management
+	SetBufferPool(pool *BufferPool)
+
+	// PreAllocate pre-allocates capacity for the expected batch size
+	PreAllocate(expectedBatchSize int)
 }
 
 // TypeRegistry manages type handlers by OID
@@ -630,6 +636,14 @@ func (w *BoolColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
 
+func (w *BoolColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Primitive types don't need buffer pools for temporary allocations
+}
+
+func (w *BoolColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
+}
+
 // Int16ColumnWriter writes PostgreSQL int2 data directly to Arrow int16 arrays
 type Int16ColumnWriter struct {
 	Builder *array.Int16Builder
@@ -675,6 +689,14 @@ func (w *Int16ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
 
 func (w *Int16ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
+}
+
+func (w *Int16ColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Primitive types don't need buffer pools for temporary allocations
+}
+
+func (w *Int16ColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
 }
 
 // Int32ColumnWriter writes PostgreSQL int4 data directly to Arrow int32 arrays
@@ -724,6 +746,14 @@ func (w *Int32ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
 
+func (w *Int32ColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Primitive types don't need buffer pools for temporary allocations
+}
+
+func (w *Int32ColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
+}
+
 // Int64ColumnWriter writes PostgreSQL int8 data directly to Arrow int64 arrays
 type Int64ColumnWriter struct {
 	Builder *array.Int64Builder
@@ -769,6 +799,14 @@ func (w *Int64ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
 
 func (w *Int64ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
+}
+
+func (w *Int64ColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Primitive types don't need buffer pools for temporary allocations
+}
+
+func (w *Int64ColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
 }
 
 // Float32ColumnWriter writes PostgreSQL float4 data directly to Arrow float32 arrays
@@ -818,6 +856,14 @@ func (w *Float32ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
 
+func (w *Float32ColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Primitive types don't need buffer pools for temporary allocations
+}
+
+func (w *Float32ColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
+}
+
 // Float64ColumnWriter writes PostgreSQL float8 data directly to Arrow float64 arrays
 type Float64ColumnWriter struct {
 	Builder *array.Float64Builder
@@ -865,10 +911,22 @@ func (w *Float64ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
 
+func (w *Float64ColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Primitive types don't need buffer pools for temporary allocations
+}
+
+func (w *Float64ColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
+}
+
 // StringColumnWriter writes PostgreSQL text data directly to Arrow string arrays
 // Achieves zero-copy by appending bytes directly to the binary builder
 type StringColumnWriter struct {
-	Builder *array.StringBuilder
+	Builder    *array.StringBuilder
+	bufferPool *BufferPool // Buffer pool for temporary allocations
+
+	// Pre-allocation optimization
+	expectedBatchSize int
 }
 
 func (w *StringColumnWriter) WriteField(data []byte, isNull bool) error {
@@ -906,9 +964,23 @@ func (w *StringColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
 
+func (w *StringColumnWriter) SetBufferPool(pool *BufferPool) {
+	w.bufferPool = pool
+}
+
+func (w *StringColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.expectedBatchSize = expectedBatchSize
+	// Pre-allocate string builder capacity
+	w.Builder.Reserve(expectedBatchSize)
+}
+
 // BinaryColumnWriter writes PostgreSQL bytea data directly to Arrow binary arrays
 type BinaryColumnWriter struct {
-	Builder *array.BinaryBuilder
+	Builder    *array.BinaryBuilder
+	bufferPool *BufferPool // Buffer pool for temporary allocations
+
+	// Pre-allocation optimization
+	expectedBatchSize int
 }
 
 func (w *BinaryColumnWriter) WriteField(data []byte, isNull bool) error {
@@ -944,6 +1016,16 @@ func (w *BinaryColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error 
 
 func (w *BinaryColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
+}
+
+func (w *BinaryColumnWriter) SetBufferPool(pool *BufferPool) {
+	w.bufferPool = pool
+}
+
+func (w *BinaryColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.expectedBatchSize = expectedBatchSize
+	// Pre-allocate binary builder capacity
+	w.Builder.Reserve(expectedBatchSize)
 }
 
 // Date32ColumnWriter writes PostgreSQL date data directly to Arrow date32 arrays
@@ -995,6 +1077,14 @@ func (w *Date32ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
 }
 
+func (w *Date32ColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Date types don't need buffer pools for temporary allocations
+}
+
+func (w *Date32ColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
+}
+
 // Time64ColumnWriter writes PostgreSQL time data directly to Arrow time64 arrays
 type Time64ColumnWriter struct {
 	Builder *array.Time64Builder
@@ -1044,6 +1134,14 @@ func (w *Time64ColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error 
 
 func (w *Time64ColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
+}
+
+func (w *Time64ColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Time types don't need buffer pools for temporary allocations
+}
+
+func (w *Time64ColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
 }
 
 // TimestampColumnWriter writes PostgreSQL timestamp data directly to Arrow timestamp arrays
@@ -1102,6 +1200,14 @@ func (w *TimestampColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) err
 
 func (w *TimestampColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
+}
+
+func (w *TimestampColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Timestamp types don't need buffer pools for temporary allocations
+}
+
+func (w *TimestampColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
 }
 
 // NewTimestampColumnWriter creates a TimestampColumnWriter for timestamp (no timezone)
@@ -1214,4 +1320,12 @@ func (w *MonthDayNanoIntervalColumnWriter) WriteFieldBatch(data [][]byte, nulls 
 
 func (w *MonthDayNanoIntervalColumnWriter) BuilderStats() (length, capacity int) {
 	return w.Builder.Len(), w.Builder.Cap()
+}
+
+func (w *MonthDayNanoIntervalColumnWriter) SetBufferPool(pool *BufferPool) {
+	// Interval types don't need buffer pools for temporary allocations
+}
+
+func (w *MonthDayNanoIntervalColumnWriter) PreAllocate(expectedBatchSize int) {
+	w.Builder.Reserve(expectedBatchSize)
 }

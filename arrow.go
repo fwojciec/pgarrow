@@ -412,7 +412,7 @@ func newCompiledRecordReader(compiledSchema *CompiledSchema, conn *pgxpool.Conn,
 		conn:           conn,
 		pipeReader:     pipeReader,
 		copyDone:       copyDone,
-		batchSize:      128800, // Default batch size optimized for DuckDB parallel processing
+		batchSize:      OptimalBatchSizeGo, // Go-optimized batch size for GC and cache efficiency
 	}, nil
 }
 

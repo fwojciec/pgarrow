@@ -10,7 +10,8 @@ import (
 
 const (
 	// DefaultBatchSize is the default batch size for compiled schemas
-	DefaultBatchSize = 1024
+	// Use Go-optimized value instead of hardcoded 1024
+	DefaultBatchSize = OptimalBatchSizeGo
 )
 
 // CompiledSchema represents a pre-compiled PostgreSQL→Arrow schema mapping
@@ -25,13 +26,27 @@ const (
 // operations like Append(), AppendNull(), and Resize().
 //
 // For concurrent processing, create separate CompiledSchema instances per goroutine.
+//
+// Memory Layout Optimization: Fields are ordered for cache efficiency with
+// hot data (frequently accessed) first, followed by cold data.
 type CompiledSchema struct {
-	columnWriters []ColumnWriter
-	schema        *arrow.Schema
-	allocator     memory.Allocator
-	batchSize     int
-	released      bool
-	fieldOIDs     []uint32
+	// Hot data: accessed every batch (first cache line)
+	columnWriters []ColumnWriter // Frequently accessed for writing
+	numColumns    int            // Cache field count to avoid len() calls
+	batchSize     int            // Current batch size configuration
+
+	// Warm data: accessed per schema operation (second cache line)
+	schema    *arrow.Schema    // Schema metadata
+	fieldOIDs []uint32         // PostgreSQL type OIDs
+	allocator memory.Allocator // Memory allocator
+
+	// Buffer pool integration for GC efficiency
+	bufferPool *BatchParserPool // Buffer management
+
+	// Cold data: rarely accessed (separate cache line)
+	_        [32]byte // Ensure separation from hot data
+	released bool     // Release state flag
+	_        [31]byte // Align to cache boundary
 }
 
 // CompileSchema creates a CompiledSchema with pre-allocated column writers.
@@ -61,13 +76,27 @@ func CompileSchema(pgOIDs []uint32, arrowSchema *arrow.Schema, alloc memory.Allo
 		columnWriters[i] = writer
 	}
 
+	// Calculate optimal batch size based on schema composition
+	optimalBatchSize := GetOptimalBatchSizeForSchema(pgOIDs)
+
+	// Create buffer pool for memory management
+	bufferPool := NewBatchParserPool()
+
+	// Initialize buffer pools and pre-allocation for all column writers
+	for _, writer := range columnWriters {
+		writer.SetBufferPool(bufferPool.GetBufferPool())
+		writer.PreAllocate(optimalBatchSize)
+	}
+
 	return &CompiledSchema{
 		columnWriters: columnWriters,
+		numColumns:    len(columnWriters), // Cache for performance
 		schema:        arrowSchema,
-		allocator:     alloc,
-		batchSize:     DefaultBatchSize,
-		released:      false,
 		fieldOIDs:     pgOIDs,
+		allocator:     alloc,
+		batchSize:     optimalBatchSize, // Use Go-optimized batch size
+		bufferPool:    bufferPool,       // Buffer management
+		released:      false,
 	}, nil
 }
 
@@ -78,12 +107,22 @@ func (cs *CompiledSchema) Schema() *arrow.Schema {
 
 // NumColumns returns the number of columns in the schema
 func (cs *CompiledSchema) NumColumns() int {
-	return len(cs.columnWriters)
+	return cs.numColumns // Use cached value for performance
 }
 
 // FieldOIDs returns the PostgreSQL OIDs for each field in the schema
 func (cs *CompiledSchema) FieldOIDs() []uint32 {
 	return cs.fieldOIDs
+}
+
+// GetBufferPool returns the buffer pool for memory management
+func (cs *CompiledSchema) GetBufferPool() *BatchParserPool {
+	return cs.bufferPool
+}
+
+// GetBatchSize returns the optimal batch size for this schema
+func (cs *CompiledSchema) GetBatchSize() int {
+	return cs.batchSize
 }
 
 // ProcessRow processes a row of PostgreSQL binary data directly to Arrow columns.
@@ -97,12 +136,12 @@ func (cs *CompiledSchema) ProcessRow(fieldData [][]byte, nulls []bool) error {
 		return fmt.Errorf("CompiledSchema has been released")
 	}
 
-	if len(fieldData) != len(cs.columnWriters) {
-		return fmt.Errorf("field count mismatch: expected %d, got %d", len(cs.columnWriters), len(fieldData))
+	if len(fieldData) != cs.numColumns {
+		return fmt.Errorf("field count mismatch: expected %d, got %d", cs.numColumns, len(fieldData))
 	}
 
-	if len(nulls) != len(cs.columnWriters) {
-		return fmt.Errorf("null indicator count mismatch: expected %d, got %d", len(cs.columnWriters), len(nulls))
+	if len(nulls) != cs.numColumns {
+		return fmt.Errorf("null indicator count mismatch: expected %d, got %d", cs.numColumns, len(nulls))
 	}
 
 	// Direct field → column writer mapping, no runtime dispatch
@@ -200,6 +239,7 @@ func (cs *CompiledSchema) Release() {
 	cs.columnWriters = nil
 	cs.schema = nil
 	cs.allocator = nil
+	cs.bufferPool = nil // Release buffer pool reference
 	cs.released = true
 }
 
