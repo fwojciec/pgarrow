@@ -31,6 +31,7 @@ type CompiledSchema struct {
 	allocator     memory.Allocator
 	batchSize     int
 	released      bool
+	fieldOIDs     []uint32
 }
 
 // CompileSchema creates a CompiledSchema with pre-allocated column writers.
@@ -66,6 +67,7 @@ func CompileSchema(pgOIDs []uint32, arrowSchema *arrow.Schema, alloc memory.Allo
 		allocator:     alloc,
 		batchSize:     DefaultBatchSize,
 		released:      false,
+		fieldOIDs:     pgOIDs,
 	}, nil
 }
 
@@ -77,6 +79,11 @@ func (cs *CompiledSchema) Schema() *arrow.Schema {
 // NumColumns returns the number of columns in the schema
 func (cs *CompiledSchema) NumColumns() int {
 	return len(cs.columnWriters)
+}
+
+// FieldOIDs returns the PostgreSQL OIDs for each field in the schema
+func (cs *CompiledSchema) FieldOIDs() []uint32 {
+	return cs.fieldOIDs
 }
 
 // ProcessRow processes a row of PostgreSQL binary data directly to Arrow columns.
@@ -105,6 +112,66 @@ func (cs *CompiledSchema) ProcessRow(fieldData [][]byte, nulls []bool) error {
 		}
 	}
 	return nil
+}
+
+// BuildRecord creates an Arrow record from the current state of all column writers.
+// This finalizes the current batch and resets the column writers for the next batch.
+//
+// IMPORTANT: This method is NOT thread-safe. Only one goroutine should call
+// BuildRecord on a CompiledSchema instance at a time.
+func (cs *CompiledSchema) BuildRecord(numRows int64) (arrow.Record, error) {
+	if cs.released {
+		return nil, fmt.Errorf("CompiledSchema has been released")
+	}
+
+	// Build arrays from column writers
+	arrays := make([]arrow.Array, len(cs.columnWriters))
+	for i, writer := range cs.columnWriters {
+		arrays[i] = cs.buildArrayFromWriter(writer)
+	}
+
+	// Create record
+	record := array.NewRecord(cs.schema, arrays, numRows)
+
+	// Release arrays (record has retained them)
+	for _, arr := range arrays {
+		arr.Release()
+	}
+
+	return record, nil
+}
+
+// buildArrayFromWriter creates an array from a ColumnWriter based on its type
+func (cs *CompiledSchema) buildArrayFromWriter(writer ColumnWriter) arrow.Array {
+	switch w := writer.(type) {
+	case *BoolColumnWriter:
+		return w.Builder.NewArray()
+	case *Int16ColumnWriter:
+		return w.Builder.NewArray()
+	case *Int32ColumnWriter:
+		return w.Builder.NewArray()
+	case *Int64ColumnWriter:
+		return w.Builder.NewArray()
+	case *Float32ColumnWriter:
+		return w.Builder.NewArray()
+	case *Float64ColumnWriter:
+		return w.Builder.NewArray()
+	case *StringColumnWriter:
+		return w.Builder.NewArray()
+	case *BinaryColumnWriter:
+		return w.Builder.NewArray()
+	case *Date32ColumnWriter:
+		return w.Builder.NewArray()
+	case *Time64ColumnWriter:
+		return w.Builder.NewArray()
+	case *TimestampColumnWriter:
+		return w.Builder.NewArray()
+	case *MonthDayNanoIntervalColumnWriter:
+		return w.Builder.NewArray()
+	default:
+		// This should never happen if column writers are created correctly
+		panic(fmt.Sprintf("unsupported column writer type: %T", writer))
+	}
 }
 
 // Release releases all resources held by the CompiledSchema
@@ -167,19 +234,18 @@ func createColumnWriterForOID(oid uint32, alloc memory.Allocator) (ColumnWriter,
 	case TypeOIDText, TypeOIDVarchar, TypeOIDBpchar, TypeOIDName, TypeOIDChar: // 25, 1043, 1042, 19, 18
 		builder := array.NewStringBuilder(alloc)
 		return &StringColumnWriter{Builder: builder}, nil
+	case TypeOIDBytea: // 17
+		builder := array.NewBinaryBuilder(alloc, arrow.BinaryTypes.Binary)
+		return &BinaryColumnWriter{Builder: builder}, nil
 	case TypeOIDDate: // 1082
 		builder := array.NewDate32Builder(alloc)
 		return &Date32ColumnWriter{Builder: builder}, nil
 	case TypeOIDTime: // 1083
 		return createTimeColumnWriter(alloc)
 	case TypeOIDTimestamp: // 1114
-		timestampType := &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: ""}
-		builder := array.NewTimestampBuilder(alloc, timestampType)
-		return NewTimestampColumnWriter(builder), nil
+		return createTimestampColumnWriter(alloc)
 	case TypeOIDTimestamptz: // 1184
-		timestampType := &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}
-		builder := array.NewTimestampBuilder(alloc, timestampType)
-		return NewTimestamptzColumnWriter(builder), nil
+		return createTimestamptzColumnWriter(alloc)
 	case TypeOIDInterval: // 1186
 		builder := array.NewMonthDayNanoIntervalBuilder(alloc)
 		return &MonthDayNanoIntervalColumnWriter{Builder: builder}, nil
@@ -196,6 +262,20 @@ func createTimeColumnWriter(alloc memory.Allocator) (ColumnWriter, error) {
 	}
 	builder := array.NewTime64Builder(alloc, timeType)
 	return &Time64ColumnWriter{Builder: builder}, nil
+}
+
+// createTimestampColumnWriter creates a TimestampColumnWriter (no timezone)
+func createTimestampColumnWriter(alloc memory.Allocator) (ColumnWriter, error) {
+	timestampType := &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: ""}
+	builder := array.NewTimestampBuilder(alloc, timestampType)
+	return NewTimestampColumnWriter(builder), nil
+}
+
+// createTimestamptzColumnWriter creates a TimestampColumnWriter with UTC timezone
+func createTimestamptzColumnWriter(alloc memory.Allocator) (ColumnWriter, error) {
+	timestampType := &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}
+	builder := array.NewTimestampBuilder(alloc, timestampType)
+	return NewTimestamptzColumnWriter(builder), nil
 }
 
 // getArrowTypeForOID returns the expected Arrow type for a given PostgreSQL OID
@@ -215,6 +295,8 @@ func getArrowTypeForOID(oid uint32) (arrow.DataType, error) {
 		return arrow.PrimitiveTypes.Float64, nil
 	case TypeOIDText, TypeOIDVarchar, TypeOIDBpchar, TypeOIDName, TypeOIDChar:
 		return arrow.BinaryTypes.String, nil
+	case TypeOIDBytea:
+		return arrow.BinaryTypes.Binary, nil
 	case TypeOIDDate:
 		return arrow.PrimitiveTypes.Date32, nil
 	case TypeOIDTime:
@@ -259,6 +341,10 @@ func releaseColumnWriter(writer ColumnWriter) {
 			w.Builder.Release()
 		}
 	case *StringColumnWriter:
+		if w.Builder != nil {
+			w.Builder.Release()
+		}
+	case *BinaryColumnWriter:
 		if w.Builder != nil {
 			w.Builder.Release()
 		}
