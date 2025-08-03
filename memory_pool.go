@@ -11,7 +11,11 @@ const (
 	GoPageSizeBytes    = 8192 // Go runtime page size
 	CacheLineSizeBytes = 64   // x86_64 cache line size
 
-	// Optimal batch sizes based on Go runtime characteristics
+	// ADBC-style byte-based batching constants (preferred approach)
+	DefaultBatchSizeBytes = 16777216 // 16MB - ADBC's kDefaultBatchSizeHintBytes
+	MaxBatchSizeBytes     = 67108864 // 64MB - Upper limit for memory safety
+
+	// Legacy row-based batch sizes (deprecated, use byte-based batching)
 	OptimalBatchSizeGo = 256 // Sweet spot for Go GC and cache performance
 	MaxBatchSizeGo     = 512 // Maximum before diminishing returns
 	MinBatchSizeGo     = 64  // Minimum for cache efficiency

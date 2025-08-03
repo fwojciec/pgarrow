@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	// DefaultBatchSize is the default batch size for compiled schemas
-	// Use Go-optimized value instead of hardcoded 1024
+	// DefaultBatchSize is the default row-based batch size for compiled schemas (deprecated)
+	// Use DefaultBatchSizeBytes for byte-based batching following ADBC approach
 	DefaultBatchSize = OptimalBatchSizeGo
 )
 
