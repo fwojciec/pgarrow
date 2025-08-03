@@ -73,20 +73,7 @@ Type-specific column writers for Arrow format conversion achieve zero heap alloc
 
 All 11 supported PostgreSQL data types achieve zero heap allocations during Arrow conversion.
 
-### 2. Type Handler Parsing
-Direct PostgreSQL binary format parsing performance:
-
-- `BenchmarkTypeHandlers_Parse/BoolType` - ~2.1 ns/op, 0 allocs
-- `BenchmarkTypeHandlers_Parse/Int2Type` - ~2.5 ns/op, 0 allocs
-- `BenchmarkTypeHandlers_Parse/Int4Type` - ~9.1 ns/op, 1 alloc
-- `BenchmarkTypeHandlers_Parse/Int8Type` - ~9.5 ns/op, 1 alloc  
-- `BenchmarkTypeHandlers_Parse/Float4Type` - ~9.0 ns/op, 1 alloc
-- `BenchmarkTypeHandlers_Parse/Float8Type` - ~9.4 ns/op, 1 alloc
-- `BenchmarkTypeHandlers_Parse/TextType_Short` - ~26 ns/op, 2 allocs
-- `BenchmarkTypeHandlers_Parse/TextType_Long` - ~36 ns/op, 2 allocs
-- `BenchmarkTypeHandlers_Parse/IntervalType` - ~12.7 ns/op, 1 alloc
-
-### 3. Memory Layout Optimization
+### 2. Memory Layout Optimization
 Go GC-optimized batch sizing for sustained performance:
 
 | Batch Size | ns/op   | gc-ns/op | B/op    | allocs/op | Notes |
@@ -99,7 +86,7 @@ Go GC-optimized batch sizing for sustained performance:
 
 **Key Finding**: 256-row batches provide optimal balance between throughput and GC efficiency.
 
-### 4. GC Pressure Reduction
+### 3. GC Pressure Reduction
 CompiledSchema memory optimization results:
 
 | Approach | ns/op | gc-ns/op | B/op | allocs/op | Improvement |
@@ -108,7 +95,7 @@ CompiledSchema memory optimization results:
 | Without Optimizations | 123,017 | 3,285 | 354,954 | 6,145 | - |
 | **Difference** | **54% faster** | **86% less GC** | **89% less memory** | **75% fewer allocs** | - |
 
-### 5. End-to-End Performance Comparisons
+### 4. End-to-End Performance Comparisons
 PGArrow vs pgx text format parsing:
 
 #### Pool vs Connection Creation
@@ -158,17 +145,12 @@ PGArrow uses more memory upfront but provides structured Arrow records ready for
 
 ## Comprehensive Benchmark Suite
 
-PGArrow includes **80+ benchmark functions** organized by category:
+PGArrow includes **60+ benchmark functions** organized by category:
 
 ### Column Writer Benchmarks (11 functions)
 - Individual type writer performance
 - Single vs batch operation comparisons
 - End-to-end column processing
-
-### Type Handler Benchmarks (14 functions)
-- PostgreSQL binary format parsing
-- NULL value handling
-- UTF-8 text processing with various lengths
 
 ### Memory Optimization Benchmarks (8 functions)
 - Batch size scaling analysis
@@ -215,7 +197,7 @@ Performance regression testing should fail if:
 The benchmarks directly test the core CompiledSchema conversion pipeline:
 1. **Just-in-Time Metadata Discovery** → Fast connection establishment
 2. **Binary Protocol Parsing** → PostgreSQL COPY binary format processing
-3. **Type-Specific Conversion** → OID-based optimized type handlers  
+3. **Type-Specific Conversion** → OID-based ColumnWriter implementations  
 4. **Arrow Record Construction** → Columnar array building with optimal batching
 5. **Memory Management** → GC-optimized allocation patterns and cleanup
 

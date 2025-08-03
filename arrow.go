@@ -17,23 +17,56 @@ type ColumnInfo struct {
 
 // CreateSchema creates an Arrow schema from PostgreSQL column metadata
 func CreateSchema(columns []ColumnInfo) (*arrow.Schema, error) {
-	registry := NewRegistry()
 	fields := make([]arrow.Field, len(columns))
 
 	for i, col := range columns {
-		handler, err := registry.GetHandler(col.OID)
+		arrowType, err := oidToArrowType(col.OID)
 		if err != nil {
 			return nil, err
 		}
 
 		fields[i] = arrow.Field{
 			Name:     col.Name,
-			Type:     handler.ArrowType(),
+			Type:     arrowType,
 			Nullable: true, // PostgreSQL columns are nullable by default
 		}
 	}
 
 	return arrow.NewSchema(fields, nil), nil
+}
+
+// oidToArrowType maps PostgreSQL OIDs directly to Arrow types
+func oidToArrowType(oid uint32) (arrow.DataType, error) {
+	switch oid {
+	case TypeOIDBool:
+		return arrow.FixedWidthTypes.Boolean, nil
+	case TypeOIDBytea:
+		return arrow.BinaryTypes.Binary, nil
+	case TypeOIDInt2:
+		return arrow.PrimitiveTypes.Int16, nil
+	case TypeOIDInt4:
+		return arrow.PrimitiveTypes.Int32, nil
+	case TypeOIDInt8:
+		return arrow.PrimitiveTypes.Int64, nil
+	case TypeOIDFloat4:
+		return arrow.PrimitiveTypes.Float32, nil
+	case TypeOIDFloat8:
+		return arrow.PrimitiveTypes.Float64, nil
+	case TypeOIDText, TypeOIDVarchar, TypeOIDBpchar, TypeOIDName, TypeOIDChar:
+		return arrow.BinaryTypes.String, nil
+	case TypeOIDDate:
+		return arrow.PrimitiveTypes.Date32, nil
+	case TypeOIDTime:
+		return arrow.FixedWidthTypes.Time64us, nil
+	case TypeOIDTimestamp:
+		return &arrow.TimestampType{Unit: arrow.Microsecond}, nil
+	case TypeOIDTimestamptz:
+		return &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}, nil
+	case TypeOIDInterval:
+		return arrow.FixedWidthTypes.MonthDayNanoInterval, nil
+	default:
+		return nil, fmt.Errorf("unsupported PostgreSQL type OID: %d", oid)
+	}
 }
 
 // extractFieldData extracts raw binary data and null indicators from parsed fields

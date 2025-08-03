@@ -185,7 +185,7 @@ func (p *Parser) ParseField(fieldIndex int) (Field, error) {
 	return Field{Value: value}, nil
 }
 
-// parseFieldData does minimal necessary conversions - most work is handled by TypeHandlers
+// parseFieldData returns raw binary data for direct use by ColumnWriters
 func (p *Parser) parseFieldData(data []byte, oid uint32) any {
 	switch oid {
 	case TypeOIDBytea:
@@ -198,7 +198,7 @@ func (p *Parser) parseFieldData(data []byte, oid uint32) any {
 
 	default:
 		// For primitive types (bool, int, float, date, time, timestamp, interval), return raw bytes
-		// TypeHandler will do the conversion
+		// ColumnWriter will do the binary-to-Arrow conversion directly
 		return data
 	}
 }

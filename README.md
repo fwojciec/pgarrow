@@ -101,7 +101,7 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 - **Just-in-Time Metadata**: Schema discovered at query time, not at connection time
 - **Memory Usage**: 89% reduction in allocations vs previous implementation  
-- **Type Conversion**: 2-9 ns/op with optimized string handling
+- **ColumnWriter Performance**: 5-26 ns/op with zero allocations for most types
 - **GC Impact**: 174 gc-ns/op measured with 256-row batches
 
 **Architecture:**
@@ -109,10 +109,10 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 - **Just-in-time metadata discovery**: No expensive upfront schema queries
 - **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
 
-**Type Conversion Speed:**
-- **Primitive types** (bool, integers, floats): 2-9 ns/op, zero heap allocations
-- **String types**: 12.7 ns/op, zero heap allocations with memory-safe buffer management
-- **Complex types** (intervals, timestamps): 12-13 ns/op, zero heap allocations
+**ColumnWriter Performance:**
+- **Primitive types** (bool, integers, floats): 5-7 ns/op, zero allocations
+- **String types**: ~12.7 ns/op, zero allocations with memory-safe buffer management  
+- **Complex types** (intervals, timestamps): 6-9 ns/op, zero allocations
 
 All 17 supported PostgreSQL data types achieve zero heap allocations during Arrow conversion.
 

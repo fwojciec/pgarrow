@@ -139,7 +139,7 @@ func readInt64(data []byte) int64 {
 - Pre-allocate byte slices for known field sizes
 - Use unsafe package for zero-copy conversions where appropriate
 - Buffer reads to minimize system calls
-- Cache type handlers to avoid repeated lookups
+- Cache ColumnWriter instances to avoid repeated allocations
 
 ## Binary Format Examples
 
