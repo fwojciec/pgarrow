@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/fwojciec/pgarrow"
 	"github.com/stretchr/testify/assert"
@@ -173,4 +174,104 @@ func TestByteBatchingSizes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLargeDataIntegrity tests byte-based batching with large datasets that force multiple batches.
+// This test is inspired by ADBC's "test with large data" pattern and catches bugs that only
+// surface with realistic data volumes, like the data loss bug at MaxBatchSizeBytes boundaries.
+func TestLargeDataIntegrity(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("Skipping large data test in short mode - this test is slow but critical")
+	}
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	t.Cleanup(func() { alloc.AssertSize(t, 0) })
+
+	pool, cleanup := setupTestDBWithAllocator(t, alloc)
+	t.Cleanup(cleanup)
+
+	ctx := context.Background()
+
+	// Create data large enough to exceed MaxBatchSizeBytes (64MB) and force multiple batches
+	// Use large text fields to ensure we hit the boundary condition
+	largeTextSize := 100000 // 100KB per text field
+	expectedRows := 1000    // 1000 rows * ~100KB each = ~100MB total (exceeds 64MB limit)
+
+	sql := fmt.Sprintf(`
+		SELECT 
+			i::INTEGER as id,
+			repeat('x', %d)::TEXT as large_text,
+			repeat('data_', %d)::TEXT as another_large_field,
+			(i * 2.5)::FLOAT8 as value
+		FROM generate_series(1, %d) i
+		ORDER BY i
+	`, largeTextSize, largeTextSize/20, expectedRows) // Mix of large and smaller fields
+
+	reader, err := pool.QueryArrow(ctx, sql)
+	require.NoError(t, err, "Failed to execute large data query")
+	defer reader.Release()
+
+	batchCount := 0
+	totalRows := 0
+	processedIDs := make(map[int]bool) // Track which IDs we've seen to detect data loss
+	var largestBatchSize int64
+
+	for reader.Next() {
+		batchCount++
+		record := reader.Record()
+		batchRows := int(record.NumRows())
+		totalRows += batchRows
+
+		if record.NumRows() > largestBatchSize {
+			largestBatchSize = record.NumRows()
+		}
+
+		// Extract and verify all IDs in this batch to ensure no data loss
+		idColumn, ok := record.Column(0).(*array.Int32)
+		if !ok {
+			t.Fatalf("Expected first column to be Int32, got %T", record.Column(0))
+		}
+		for i := 0; i < batchRows; i++ {
+			if !idColumn.IsNull(i) {
+				id := int(idColumn.Value(i))
+				if processedIDs[id] {
+					t.Errorf("Duplicate ID %d found - indicates data corruption", id)
+				}
+				processedIDs[id] = true
+			}
+		}
+
+		t.Logf("Batch %d: %d rows", batchCount, batchRows)
+		record.Release()
+	}
+
+	require.NoError(t, reader.Err(), "Reader should not have errors")
+
+	// Critical validation: Every expected row must be present
+	assert.Equal(t, expectedRows, totalRows, "CRITICAL: Data loss detected - not all rows processed")
+	assert.Len(t, processedIDs, expectedRows, "CRITICAL: Missing IDs indicate data loss")
+
+	// Verify we actually forced multiple batches (this test's purpose)
+	assert.Greater(t, batchCount, 1, "Test should force multiple batches to validate boundary conditions")
+
+	// Verify no single batch is impossibly large
+	assert.Less(t, largestBatchSize, int64(expectedRows), "Single batch shouldn't contain all rows")
+
+	// Check for sequential IDs to ensure no gaps
+	for i := 1; i <= expectedRows; i++ {
+		assert.True(t, processedIDs[i], "Missing ID %d - indicates data loss at boundary", i)
+	}
+
+	t.Logf("Large data integrity test results:")
+	t.Logf("  Total rows processed: %d/%d", totalRows, expectedRows)
+	t.Logf("  Total batches: %d", batchCount)
+	t.Logf("  Largest batch: %d rows", largestBatchSize)
+	t.Logf("  Data integrity: %s", func() string {
+		if totalRows == expectedRows && len(processedIDs) == expectedRows {
+			return "✅ PASS - No data loss"
+		}
+		return "❌ FAIL - Data loss detected"
+	}())
 }
