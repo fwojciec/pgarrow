@@ -181,7 +181,9 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string) (array.RecordReader, 
 		}
 	}
 
-	// Execute COPY and parse binary data using CompiledSchema - connection lifecycle is now managed by the reader
+	// Execute COPY and parse binary data using CompiledSchema.
+	// Ownership of compiledSchema is transferred to the returned reader.
+	// The reader is responsible for releasing compiledSchema when it is closed.
 	reader, err := p.executeCopyAndParseCompiled(ctx, conn, sql, compiledSchema)
 	if err != nil {
 		compiledSchema.Release() // Clean up compiled schema on error

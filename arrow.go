@@ -312,7 +312,7 @@ func (rb *RecordBuilder) NewRecord() (arrow.Record, error) {
 
 // extractFieldData extracts raw binary data and null indicators from parsed fields
 // This converts from the parser's Field format to the format expected by ColumnWriters
-func extractFieldData(fields []Field) ([][]byte, []bool) {
+func extractFieldData(fields []Field) ([][]byte, []bool, error) {
 	fieldData := make([][]byte, len(fields))
 	nulls := make([]bool, len(fields))
 
@@ -327,11 +327,11 @@ func extractFieldData(fields []Field) ([][]byte, []bool) {
 				fieldData[i] = data
 			} else {
 				// For non-binary types, this is an error in integration
-				panic(fmt.Sprintf("unexpected field value type for compiled schema: %T", field.Value))
+				return nil, nil, fmt.Errorf("unexpected field value type for compiled schema: %T", field.Value)
 			}
 		}
 	}
-	return fieldData, nulls
+	return fieldData, nulls, nil
 }
 
 // parseRowsIntoBatchCompiled parses rows using CompiledSchema for direct column writing
@@ -350,7 +350,11 @@ func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
 		}
 
 		// Extract raw binary data and null indicators
-		fieldData, nulls := extractFieldData(fields)
+		fieldData, nulls, err := extractFieldData(fields)
+		if err != nil {
+			r.err = fmt.Errorf("failed to extract field data: %w", err)
+			return rowCount
+		}
 
 		// Direct writing to compiled column writers
 		err = r.compiledSchema.ProcessRow(fieldData, nulls)

@@ -127,7 +127,17 @@ func (cs *CompiledSchema) BuildRecord(numRows int64) (arrow.Record, error) {
 	// Build arrays from column writers
 	arrays := make([]arrow.Array, len(cs.columnWriters))
 	for i, writer := range cs.columnWriters {
-		arrays[i] = cs.buildArrayFromWriter(writer)
+		arr, err := cs.buildArrayFromWriter(writer)
+		if err != nil {
+			// Clean up any arrays created so far
+			for j := 0; j < i; j++ {
+				if arrays[j] != nil {
+					arrays[j].Release()
+				}
+			}
+			return nil, fmt.Errorf("failed to build array from column writer %d: %w", i, err)
+		}
+		arrays[i] = arr
 	}
 
 	// Create record
@@ -142,35 +152,35 @@ func (cs *CompiledSchema) BuildRecord(numRows int64) (arrow.Record, error) {
 }
 
 // buildArrayFromWriter creates an array from a ColumnWriter based on its type
-func (cs *CompiledSchema) buildArrayFromWriter(writer ColumnWriter) arrow.Array {
+func (cs *CompiledSchema) buildArrayFromWriter(writer ColumnWriter) (arrow.Array, error) {
 	switch w := writer.(type) {
 	case *BoolColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *Int16ColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *Int32ColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *Int64ColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *Float32ColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *Float64ColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *StringColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *BinaryColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *Date32ColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *Time64ColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *TimestampColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	case *MonthDayNanoIntervalColumnWriter:
-		return w.Builder.NewArray()
+		return w.Builder.NewArray(), nil
 	default:
 		// This should never happen if column writers are created correctly
-		panic(fmt.Sprintf("unsupported column writer type: %T", writer))
+		return nil, fmt.Errorf("unsupported column writer type: %T", writer)
 	}
 }
 
