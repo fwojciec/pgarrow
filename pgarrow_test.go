@@ -15,11 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Shared benchmark constants
-const (
-	defaultBenchmarkRowCount = 1000
-)
-
 // getTestDatabaseURL returns the test database URL from environment
 func getTestDatabaseURL(t *testing.T) string {
 	t.Helper()

@@ -15,23 +15,6 @@ func (t *testCustomType) Name() string                   { return "test" }
 func (t *testCustomType) ArrowType() arrow.DataType      { return arrow.PrimitiveTypes.Int32 }
 func (t *testCustomType) Parse(data []byte) (any, error) { return nil, nil }
 
-// BenchmarkTypeRegistry_GetHandler benchmarks registry lookup performance
-func BenchmarkTypeRegistry_GetHandler(b *testing.B) {
-	registry := pgarrow.NewRegistry()
-	oids := []uint32{16, 21, 23, 20, 700, 701, 25} // All 7 basic types
-
-	b.ReportAllocs()
-
-	for i := 0; b.Loop(); i++ {
-		oid := oids[i%len(oids)]
-		handler, err := registry.GetHandler(oid)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = handler
-	}
-}
-
 // BenchmarkTypeHandlers_Parse benchmarks individual type handler parsing
 func BenchmarkTypeHandlers_Parse(b *testing.B) {
 	benchmarks := []struct {
@@ -124,79 +107,6 @@ func BenchmarkTypeHandlers_Parse(b *testing.B) {
 				_ = result
 			}
 		})
-	}
-}
-
-// BenchmarkTypeRegistry_Integration benchmarks registry + type handler integration
-func BenchmarkTypeRegistry_Integration(b *testing.B) {
-	registry := pgarrow.NewRegistry()
-
-	testCases := []struct {
-		oid  uint32
-		data []byte
-	}{
-		{16, []byte{0x01}},                                            // bool
-		{21, []byte{0x00, 0x7B}},                                      // int2
-		{23, []byte{0x00, 0x00, 0x30, 0x39}},                          // int4
-		{20, []byte{0x00, 0x00, 0x00, 0x00, 0x49, 0x96, 0x02, 0xD2}},  // int8
-		{700, []byte{0x42, 0x28, 0x00, 0x00}},                         // float4
-		{701, []byte{0x40, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}, // float8
-		{25, []byte("Hello World")},                                   // text
-		{1186, []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 0xFB, 0x38, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x0E}}, // interval
-	}
-
-	b.ReportAllocs()
-
-	for i := 0; b.Loop(); i++ {
-		tc := testCases[i%len(testCases)]
-
-		handler, err := registry.GetHandler(tc.oid)
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		result, err := handler.Parse(tc.data)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = result
-	}
-}
-
-// BenchmarkTypeRegistry_AllTypes benchmarks parsing all 7 types in sequence
-func BenchmarkTypeRegistry_AllTypes(b *testing.B) {
-	registry := pgarrow.NewRegistry()
-
-	allTypes := []struct {
-		oid  uint32
-		data []byte
-	}{
-		{16, []byte{0x01}},                                            // bool
-		{21, []byte{0x00, 0x7B}},                                      // int2
-		{23, []byte{0x00, 0x00, 0x30, 0x39}},                          // int4
-		{20, []byte{0x00, 0x00, 0x00, 0x00, 0x49, 0x96, 0x02, 0xD2}},  // int8
-		{700, []byte{0x42, 0x28, 0x00, 0x00}},                         // float4
-		{701, []byte{0x40, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}, // float8
-		{25, []byte("Hello World")},                                   // text
-		{1186, []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 0xFB, 0x38, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x0E}}, // interval
-	}
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		// Parse all 7 types in each iteration
-		for _, tc := range allTypes {
-			handler, err := registry.GetHandler(tc.oid)
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			result, err := handler.Parse(tc.data)
-			if err != nil {
-				b.Fatal(err)
-			}
-			_ = result
-		}
 	}
 }
 
