@@ -7,6 +7,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 )
 
 const (
@@ -919,29 +920,37 @@ func (w *Float64ColumnWriter) PreAllocate(expectedBatchSize int) {
 	w.Builder.Reserve(expectedBatchSize)
 }
 
-// StringColumnWriter writes PostgreSQL text data directly to Arrow string arrays
-// Achieves zero-copy by appending bytes directly to the binary builder
+// StringColumnWriter provides a high-performance string column writer
+// that reduces allocations through batch-oriented buffer management and
+// direct buffer manipulation
 type StringColumnWriter struct {
-	Builder    *array.StringBuilder
-	bufferPool *BufferPool // Buffer pool for temporary allocations
-
-	// Pre-allocation optimization
+	allocator         memory.Allocator
+	bufferPool        *BufferPool
 	expectedBatchSize int
+
+	// Pre-allocated buffers for batch operations
+	offsetBuffer   *memory.Buffer // int32 offsets
+	dataBuffer     *memory.Buffer // raw string data
+	validityBuffer *memory.Buffer // null bitmap
+
+	// Current state
+	length      int     // number of strings written
+	dataSize    int     // total bytes in data buffer
+	nullCount   int     // count of null values
+	offsetSlice []int32 // direct access to offset buffer
+	dataSlice   []byte  // direct access to data buffer
+}
+
+// NewStringColumnWriter creates a new optimized string column writer
+func NewStringColumnWriter(alloc memory.Allocator) *StringColumnWriter {
+	return &StringColumnWriter{
+		allocator:         alloc,
+		expectedBatchSize: 256, // default batch size
+	}
 }
 
 func (w *StringColumnWriter) WriteField(data []byte, isNull bool) error {
-	if isNull {
-		w.Builder.AppendNull()
-		return nil
-	}
-
-	// Zero-copy: append bytes directly without string conversion
-	w.Builder.BinaryBuilder.Append(data)
-	return nil
-}
-
-func (w *StringColumnWriter) ArrowType() arrow.DataType {
-	return arrow.BinaryTypes.String
+	return w.WriteFieldBatch([][]byte{data}, []bool{isNull})
 }
 
 func (w *StringColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error {
@@ -949,19 +958,55 @@ func (w *StringColumnWriter) WriteFieldBatch(data [][]byte, nulls []bool) error 
 		return fmt.Errorf("data and nulls length mismatch: %d vs %d", len(data), len(nulls))
 	}
 
-	for i := range data {
-		if nulls[i] {
-			w.Builder.AppendNull()
+	batchSize := len(data)
+	if batchSize == 0 {
+		return nil
+	}
+
+	// Pre-calculate total data size for this batch
+	totalDataSize := 0
+	nullsInBatch := 0
+	for i, isNull := range nulls {
+		if !isNull {
+			totalDataSize += len(data[i])
 		} else {
-			// Zero-copy: append bytes directly without string conversion
-			w.Builder.BinaryBuilder.Append(data[i])
+			nullsInBatch++
 		}
 	}
+
+	// Ensure buffers have sufficient capacity
+	w.ensureCapacity(batchSize, totalDataSize)
+
+	// Process the batch efficiently
+	for i, isNull := range nulls {
+		if isNull {
+			// For nulls, repeat the current offset
+			w.offsetSlice[w.length+i+1] = int32(w.dataSize)
+			w.nullCount++
+		} else {
+			// Copy data directly to buffer
+			dataLen := len(data[i])
+			copy(w.dataSlice[w.dataSize:w.dataSize+dataLen], data[i])
+			w.dataSize += dataLen
+			w.offsetSlice[w.length+i+1] = int32(w.dataSize)
+		}
+	}
+
+	// Update validity bitmap for this batch if there are nulls
+	if nullsInBatch > 0 {
+		w.updateValidityBitmap(w.length, nulls)
+	}
+
+	w.length += batchSize
 	return nil
 }
 
+func (w *StringColumnWriter) ArrowType() arrow.DataType {
+	return arrow.BinaryTypes.String
+}
+
 func (w *StringColumnWriter) BuilderStats() (length, capacity int) {
-	return w.Builder.Len(), w.Builder.Cap()
+	return w.length, w.expectedBatchSize // approximate capacity based on expected batch size
 }
 
 func (w *StringColumnWriter) SetBufferPool(pool *BufferPool) {
@@ -970,8 +1015,208 @@ func (w *StringColumnWriter) SetBufferPool(pool *BufferPool) {
 
 func (w *StringColumnWriter) PreAllocate(expectedBatchSize int) {
 	w.expectedBatchSize = expectedBatchSize
-	// Pre-allocate string builder capacity
-	w.Builder.Reserve(expectedBatchSize)
+	// Pre-allocate buffers based on expected usage
+	w.ensureCapacity(expectedBatchSize, expectedBatchSize*32) // assume avg 32 bytes per string
+}
+
+// NewArray creates an Arrow array from the accumulated data
+func (w *StringColumnWriter) NewArray() (arrow.Array, error) {
+	if w.length == 0 {
+		// Return empty array
+		builder := array.NewStringBuilder(w.allocator)
+		defer builder.Release()
+		return builder.NewArray(), nil
+	}
+
+	// Create the final buffers - safe conversion from []int32 to []byte
+	offsetCount := w.length + 1
+	offsetBytes := make([]byte, offsetCount*4)
+	for i := 0; i < offsetCount; i++ {
+		offset := w.offsetSlice[i]
+		if offset < 0 {
+			return nil, fmt.Errorf("StringColumnWriter: invalid negative offset %d at position %d", offset, i)
+		}
+		binary.LittleEndian.PutUint32(offsetBytes[i*4:], uint32(offset))
+	}
+	offsetBuf := memory.NewBufferBytes(offsetBytes)
+
+	dataBuf := memory.NewBufferBytes(w.dataSlice[:w.dataSize])
+
+	var validityBuf *memory.Buffer
+	if w.nullCount > 0 {
+		validityBuf = w.validityBuffer
+		validityBuf.Retain() // retain for the array
+	}
+
+	// Create array data
+	arrayData := array.NewData(
+		arrow.BinaryTypes.String,
+		w.length,
+		[]*memory.Buffer{validityBuf, offsetBuf, dataBuf},
+		nil, // no child data
+		w.nullCount,
+		0, // offset
+	)
+
+	arr := array.MakeFromData(arrayData)
+
+	// Reset the writer state (following Arrow's builder pattern)
+	w.Reset()
+
+	return arr, nil
+}
+
+// Reset resets the writer for reuse
+func (w *StringColumnWriter) Reset() {
+	w.length = 0
+	w.dataSize = 0
+	w.nullCount = 0
+	// Keep buffers allocated for reuse
+}
+
+// Release releases all resources
+func (w *StringColumnWriter) Release() {
+	if w.offsetBuffer != nil {
+		w.offsetBuffer.Release()
+		w.offsetBuffer = nil
+	}
+	if w.dataBuffer != nil {
+		w.dataBuffer.Release()
+		w.dataBuffer = nil
+	}
+	if w.validityBuffer != nil {
+		w.validityBuffer.Release()
+		w.validityBuffer = nil
+	}
+}
+
+// ensureCapacity ensures buffers have sufficient capacity for the new data
+func (w *StringColumnWriter) ensureCapacity(additionalItems, additionalDataSize int) {
+	newLength := w.length + additionalItems
+	newDataSize := w.dataSize + additionalDataSize
+
+	w.ensureOffsetBuffer(newLength)
+	w.ensureDataBuffer(newDataSize)
+	w.ensureValidityBuffer(newLength, additionalItems)
+}
+
+// ensureOffsetBuffer ensures offset buffer has sufficient capacity
+func (w *StringColumnWriter) ensureOffsetBuffer(newLength int) {
+	requiredOffsetBytes := (newLength + 1) * 4 // +1 for the final offset
+	if w.offsetBuffer == nil || w.offsetBuffer.Len() < requiredOffsetBytes {
+		currentLen := 0
+		if w.offsetBuffer != nil {
+			currentLen = w.offsetBuffer.Len()
+		}
+		newOffsetCapacity := max(requiredOffsetBytes, currentLen*3/2)
+		newOffsetBuf := memory.NewResizableBuffer(w.allocator)
+		newOffsetBuf.Resize(newOffsetCapacity)
+
+		if w.offsetBuffer != nil {
+			copy(newOffsetBuf.Bytes(), w.offsetBuffer.Bytes()[:w.offsetBuffer.Len()])
+			w.offsetBuffer.Release()
+		} else {
+			// Initialize first offset to 0 using safe binary encoding
+			binary.LittleEndian.PutUint32(newOffsetBuf.Bytes()[0:4], 0)
+		}
+
+		w.offsetBuffer = newOffsetBuf
+		w.updateOffsetSlice(newOffsetCapacity)
+	}
+}
+
+// ensureDataBuffer ensures data buffer has sufficient capacity
+func (w *StringColumnWriter) ensureDataBuffer(newDataSize int) {
+	if w.dataBuffer == nil || w.dataBuffer.Len() < newDataSize {
+		currentDataLen := 0
+		if w.dataBuffer != nil {
+			currentDataLen = w.dataBuffer.Len()
+		}
+		newDataCapacity := max(newDataSize, currentDataLen*3/2)
+		newDataBuf := memory.NewResizableBuffer(w.allocator)
+		newDataBuf.Resize(newDataCapacity)
+
+		if w.dataBuffer != nil {
+			copy(newDataBuf.Bytes(), w.dataBuffer.Bytes()[:w.dataSize])
+			w.dataBuffer.Release()
+		}
+
+		w.dataBuffer = newDataBuf
+		w.dataSlice = newDataBuf.Bytes()
+	}
+}
+
+// ensureValidityBuffer ensures validity buffer has sufficient capacity
+func (w *StringColumnWriter) ensureValidityBuffer(newLength, additionalItems int) {
+	if w.nullCount > 0 || additionalItems > 0 {
+		requiredValidityBytes := (newLength + 7) / 8
+		if w.validityBuffer == nil || w.validityBuffer.Len() < requiredValidityBytes {
+			currentValidityLen := 0
+			if w.validityBuffer != nil {
+				currentValidityLen = w.validityBuffer.Len()
+			}
+			newValidityCapacity := max(requiredValidityBytes, currentValidityLen*3/2)
+			newValidityBuf := memory.NewResizableBuffer(w.allocator)
+			newValidityBuf.Resize(newValidityCapacity)
+
+			if w.validityBuffer != nil {
+				copy(newValidityBuf.Bytes(), w.validityBuffer.Bytes()[:w.validityBuffer.Len()])
+				w.validityBuffer.Release()
+			} else {
+				// Efficiently fill the buffer with 0xFF using copy pattern
+				buf := newValidityBuf.Bytes()
+				if len(buf) > 0 {
+					buf[0] = 0xFF
+					for i := 1; i < len(buf); i *= 2 {
+						copy(buf[i:], buf[:i])
+					}
+				}
+			}
+
+			w.validityBuffer = newValidityBuf
+		}
+	}
+}
+
+// updateOffsetSlice updates the offset slice after buffer reallocation
+func (w *StringColumnWriter) updateOffsetSlice(newOffsetCapacity int) {
+	// Safe conversion from buffer bytes back to []int32 slice
+	offsetCount := newOffsetCapacity / 4
+	if cap(w.offsetSlice) < offsetCount {
+		w.offsetSlice = make([]int32, offsetCount)
+	} else {
+		w.offsetSlice = w.offsetSlice[:offsetCount]
+	}
+
+	// Copy existing offset data from buffer
+	bufferBytes := w.offsetBuffer.Bytes()
+	for i := 0; i < len(w.offsetSlice) && i*4 < len(bufferBytes); i++ {
+		w.offsetSlice[i] = int32(binary.LittleEndian.Uint32(bufferBytes[i*4:]))
+	}
+}
+
+// updateValidityBitmap updates the validity bitmap for a batch of items
+func (w *StringColumnWriter) updateValidityBitmap(startIndex int, nulls []bool) {
+	if w.validityBuffer == nil {
+		return
+	}
+
+	validityBytes := w.validityBuffer.Bytes()
+	for i, isNull := range nulls {
+		if isNull {
+			bitIndex := startIndex + i
+			byteIndex := bitIndex / 8
+			bitOffset := bitIndex % 8
+			validityBytes[byteIndex] &= ^(1 << bitOffset) // clear bit
+		}
+	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // BinaryColumnWriter writes PostgreSQL bytea data directly to Arrow binary arrays

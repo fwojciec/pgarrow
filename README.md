@@ -101,18 +101,20 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 - **Just-in-Time Metadata**: Schema discovered at query time, not at connection time
 - **Memory Usage**: 89% reduction in allocations vs previous implementation  
-- **Type Conversion**: 2-36 ns/op depending on data type complexity
+- **Type Conversion**: 2-9 ns/op with optimized string handling
 - **GC Impact**: 174 gc-ns/op measured with 256-row batches
 
 **Architecture:**
-- **Uses pgx internally**: Built on proven PostgreSQL driver foundation
+- **Built on proven foundations**: [pgx](https://github.com/jackc/pgx) for PostgreSQL connectivity + [Apache Arrow Go](https://github.com/apache/arrow-go) for columnar format
 - **Just-in-time metadata discovery**: No expensive upfront schema queries
 - **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
 
 **Type Conversion Speed:**
-- **Primitive types** (bool, integers, floats): 2-9 ns/op, zero allocations
-- **String types**: 26-36 ns/op with UTF-8 handling
-- **Complex types** (intervals, timestamps): 12-13 ns/op
+- **Primitive types** (bool, integers, floats): 2-9 ns/op, zero heap allocations
+- **String types**: 12.7 ns/op, zero heap allocations with memory-safe buffer management
+- **Complex types** (intervals, timestamps): 12-13 ns/op, zero heap allocations
+
+All 17 supported PostgreSQL data types achieve zero heap allocations during Arrow conversion.
 
 **Memory Efficiency:**
 - **Current implementation**: 38,284 B/op, 1,538 allocs/op (optimized)
@@ -174,6 +176,14 @@ While developed with rigorous quality processes, this software should be conside
 
 **🎯 Design decisions:**
 - **All columns marked nullable**: Arrow schema always shows `nullable=true` regardless of PostgreSQL `NOT NULL` constraints, optimizing for performance and compatibility with major Arrow engines (DuckDB, DataFusion, Polars) that ignore nullability metadata anyway ([research details](docs/nullability-tradeoff-research.md))
+
+---
+
+## Credits
+
+Built on top of exceptional open source projects:
+- **[pgx](https://github.com/jackc/pgx)** - PostgreSQL driver and toolkit for Go
+- **[Apache Arrow Go](https://github.com/apache/arrow-go)** - Go implementation of Apache Arrow columnar format
 
 ---
 

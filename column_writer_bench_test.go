@@ -112,7 +112,7 @@ func BenchmarkBoolColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -137,7 +137,7 @@ func BenchmarkInt16ColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -162,7 +162,7 @@ func BenchmarkInt32ColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -187,7 +187,7 @@ func BenchmarkInt64ColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -212,7 +212,7 @@ func BenchmarkFloat32ColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -237,7 +237,7 @@ func BenchmarkFloat64ColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -248,10 +248,8 @@ func BenchmarkFloat64ColumnWriter(b *testing.B) {
 // BenchmarkStringColumnWriter benchmarks the new ColumnWriter approach for strings
 func BenchmarkStringColumnWriter(b *testing.B) {
 	alloc := memory.NewGoAllocator()
-	builder := array.NewStringBuilder(alloc)
-	defer builder.Release()
-
-	writer := &pgarrow.StringColumnWriter{Builder: builder}
+	writer := pgarrow.NewStringColumnWriter(alloc)
+	defer writer.Release()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -262,10 +260,14 @@ func BenchmarkStringColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
-			arr := builder.NewArray()
+			arr, err := writer.NewArray()
+			if err != nil {
+				b.Fatal(err)
+			}
 			arr.Release()
+			writer.Reset()
 		}
 	}
 }
@@ -273,10 +275,8 @@ func BenchmarkStringColumnWriter(b *testing.B) {
 // BenchmarkEndToEnd_ColumnWriter simulates the full conversion pipeline using ColumnWriter
 func BenchmarkEndToEnd_ColumnWriter(b *testing.B) {
 	alloc := memory.NewGoAllocator()
-	builder := array.NewStringBuilder(alloc)
-	defer builder.Release()
-
-	writer := &pgarrow.StringColumnWriter{Builder: builder}
+	writer := pgarrow.NewStringColumnWriter(alloc)
+	defer writer.Release()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -288,10 +288,14 @@ func BenchmarkEndToEnd_ColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
-			arr := builder.NewArray()
+			arr, err := writer.NewArray()
+			if err != nil {
+				b.Fatal(err)
+			}
 			arr.Release()
+			writer.Reset()
 		}
 	}
 }
@@ -306,13 +310,11 @@ func BenchmarkBatch_ColumnWriter(b *testing.B) {
 	defer boolBuilder.Release()
 	int32Builder := array.NewInt32Builder(alloc)
 	defer int32Builder.Release()
-	stringBuilder := array.NewStringBuilder(alloc)
-	defer stringBuilder.Release()
-
 	// Setup writers
 	boolWriter := &pgarrow.BoolColumnWriter{Builder: boolBuilder}
 	int32Writer := &pgarrow.Int32ColumnWriter{Builder: int32Builder}
-	stringWriter := &pgarrow.StringColumnWriter{Builder: stringBuilder}
+	stringWriter := pgarrow.NewStringColumnWriter(alloc)
+	defer stringWriter.Release()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -343,8 +345,12 @@ func BenchmarkBatch_ColumnWriter(b *testing.B) {
 		arr1.Release()
 		arr2 := int32Builder.NewArray()
 		arr2.Release()
-		arr3 := stringBuilder.NewArray()
+		arr3, err := stringWriter.NewArray()
+		if err != nil {
+			b.Fatal(err)
+		}
 		arr3.Release()
+		stringWriter.Reset()
 	}
 }
 
@@ -367,7 +373,7 @@ func BenchmarkDate32ColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -393,7 +399,7 @@ func BenchmarkTimestampColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -419,7 +425,7 @@ func BenchmarkTime64ColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()
@@ -444,7 +450,7 @@ func BenchmarkMonthDayNanoIntervalColumnWriter(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// Reset builder periodically to avoid unbounded growth
+		// Reset writer periodically to avoid unbounded growth
 		if i%1000 == 999 {
 			arr := builder.NewArray()
 			arr.Release()

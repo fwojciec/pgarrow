@@ -206,7 +206,7 @@ func (cs *CompiledSchema) buildArrayFromWriter(writer ColumnWriter) (arrow.Array
 	case *Float64ColumnWriter:
 		return w.Builder.NewArray(), nil
 	case *StringColumnWriter:
-		return w.Builder.NewArray(), nil
+		return w.NewArray()
 	case *BinaryColumnWriter:
 		return w.Builder.NewArray(), nil
 	case *Date32ColumnWriter:
@@ -282,8 +282,7 @@ func createColumnWriterForOID(oid uint32, alloc memory.Allocator) (ColumnWriter,
 		builder := array.NewFloat64Builder(alloc)
 		return &Float64ColumnWriter{Builder: builder}, nil
 	case TypeOIDText, TypeOIDVarchar, TypeOIDBpchar, TypeOIDName, TypeOIDChar: // 25, 1043, 1042, 19, 18
-		builder := array.NewStringBuilder(alloc)
-		return &StringColumnWriter{Builder: builder}, nil
+		return NewStringColumnWriter(alloc), nil
 	case TypeOIDBytea: // 17
 		builder := array.NewBinaryBuilder(alloc, arrow.BinaryTypes.Binary)
 		return &BinaryColumnWriter{Builder: builder}, nil
@@ -391,9 +390,7 @@ func releaseColumnWriter(writer ColumnWriter) {
 			w.Builder.Release()
 		}
 	case *StringColumnWriter:
-		if w.Builder != nil {
-			w.Builder.Release()
-		}
+		w.Release()
 	case *BinaryColumnWriter:
 		if w.Builder != nil {
 			w.Builder.Release()

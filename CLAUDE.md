@@ -15,6 +15,8 @@ Strategic guidance for LLMs working with this codebase.
 
 **Quality Philosophy**: **Process over polish** - systematic validation results in quality rather than fixing issues post-hoc.
 
+**Safety Philosophy**: **Memory safety over micro-optimization** - use safe standard library approaches unless unsafe provides critical performance benefits that justify the risks. When unsafe is considered, document the trade-offs explicitly and evaluate safe alternatives first.
+
 **Documentation Philosophy**: **Objectivity over marketing** - provide measurable facts that enable informed decisions rather than promotional language.
 
 ## Quality-First Development
