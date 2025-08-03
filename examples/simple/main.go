@@ -51,7 +51,7 @@ func main() {
 	}
 
 	fmt.Println("\nPGArrow simple example completed successfully!")
-	fmt.Printf("✓ Connection speed: ~10μs (345x faster than pgx connections)\n")
+	fmt.Printf("✓ Built on pgx: Uses proven PostgreSQL driver with Arrow optimization\n")
 	fmt.Printf("✓ Memory optimized: 89%% memory reduction vs previous implementation\n")
 	fmt.Printf("✓ GC efficient: Sub-microsecond GC impact (174 gc-ns/op)\n")
 }

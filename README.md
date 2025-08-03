@@ -99,16 +99,17 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 **CompiledSchema Architecture delivers transformational performance:**
 
-- 🚀 **Ultra-fast Connections**: ~10μs establishment with just-in-time metadata discovery
+- 🚀 **Just-in-Time Metadata**: No upfront schema loading, instant pool creation
 - 🧠 **Memory Optimized**: GC-optimized batching with 256-row optimal batch sizes
 - ⚡ **High-Speed Conversion**: 2-36 ns/op type conversion, zero-copy binary parsing  
 - 📊 **GC Efficient**: Sub-microsecond GC impact (174 gc-ns/op) per operation
 
 ### Performance Characteristics
 
-**Connection Performance:**
-- **PGArrow Pool**: ~10μs (instant, just-in-time metadata discovery)
-- **pgx Connection**: ~3.5ms (345x slower due to connection establishment overhead)
+**Architecture Benefits:**
+- **Uses pgx internally**: Built on proven PostgreSQL driver foundation
+- **Just-in-time metadata discovery**: No expensive upfront schema queries
+- **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
 
 **Type Conversion Speed:**
 - **Primitive types** (bool, integers, floats): 2-9 ns/op, zero allocations

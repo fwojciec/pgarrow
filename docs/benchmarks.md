@@ -73,9 +73,11 @@ CompiledSchema memory optimization results:
 ### 5. End-to-End Performance Comparisons
 PGArrow vs pgx text format parsing:
 
-#### Connection Initialization
-- **PGArrow Pool**: ~10,001 ns/op (instant connection, just-in-time metadata)
-- **pgx Connection**: ~3,455,295 ns/op (345x slower due to connection setup overhead)
+#### Pool vs Connection Creation
+- **PGArrow Pool Creation**: ~10,001 ns/op (pgxpool.New - creates connection pool)
+- **pgx Single Connection**: ~3,455,295 ns/op (pgx.Connect - establishes actual connection)
+
+*Note: This comparison is not directly meaningful since PGArrow uses pgx internally. The difference reflects pool creation vs actual connection establishment, not a performance advantage.*
 
 #### Query Performance (100 rows)
 | Query Type | PGArrow (ns/op) | pgx Text (ns/op) | PGArrow Advantage |
@@ -182,9 +184,9 @@ This architecture delivers exceptional performance for analytical workloads whil
 ## Performance Summary
 
 **CompiledSchema delivers exceptional performance:**
-- **Connection Speed**: PGArrow pools 345x faster than pgx connections (10μs vs 3.5ms)
 - **Memory Efficiency**: 89% memory reduction, 75% fewer allocations vs previous implementation
 - **Processing Speed**: Sub-microsecond per-operation GC impact (174 gc-ns/op)
+- **Type Conversion**: 2-36 ns/op depending on complexity with zero-copy optimizations
 - **Scalability**: Linear performance scaling with optimal batch sizes (256 rows)
 - **Analytical Ready**: Direct Arrow format output eliminates downstream conversion overhead
 

@@ -164,9 +164,10 @@ PGArrow types example completed successfully!
 
 PGArrow's CompiledSchema architecture delivers exceptional performance:
 
-### Connection Performance
-- **PGArrow Pool**: ~10μs connection establishment (instant, just-in-time metadata)
-- **pgx Connection**: ~3.5ms (345x slower due to connection setup overhead)
+### Architecture Benefits
+- **Built on pgx**: Uses proven PostgreSQL driver as foundation
+- **Just-in-time metadata**: No expensive upfront schema queries  
+- **Pool-based design**: Efficient connection management
 
 ### Memory Efficiency  
 - **Current**: 38,284 B/op, 1,538 allocs/op (optimized implementation)
