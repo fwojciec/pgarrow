@@ -179,10 +179,8 @@ func TestColumnWriter_Interface(t *testing.T) {
 	t.Run("StringColumnWriter", func(t *testing.T) {
 		t.Parallel()
 		alloc := memory.NewGoAllocator()
-		builder := array.NewStringBuilder(alloc)
-		defer builder.Release()
-
-		writer := &pgarrow.StringColumnWriter{Builder: builder}
+		writer := pgarrow.NewStringColumnWriter(alloc)
+		defer writer.Release()
 		var _ pgarrow.ColumnWriter = writer
 
 		require.Equal(t, arrow.BinaryTypes.String, writer.ArrowType())
@@ -238,10 +236,8 @@ func TestColumnWriter_ErrorHandling(t *testing.T) {
 	t.Run("StringColumnWriter_EmptyData", func(t *testing.T) {
 		t.Parallel()
 		alloc := memory.NewGoAllocator()
-		builder := array.NewStringBuilder(alloc)
-		defer builder.Release()
-
-		writer := &pgarrow.StringColumnWriter{Builder: builder}
+		writer := pgarrow.NewStringColumnWriter(alloc)
+		defer writer.Release()
 
 		// Test with empty data (should be valid for strings)
 		data := []byte{}
@@ -259,10 +255,8 @@ func TestColumnWriter_ZeroCopyBehavior(t *testing.T) {
 	t.Run("StringColumnWriter_ZeroCopy", func(t *testing.T) {
 		t.Parallel()
 		alloc := memory.NewGoAllocator()
-		builder := array.NewStringBuilder(alloc)
-		defer builder.Release()
-
-		writer := &pgarrow.StringColumnWriter{Builder: builder}
+		writer := pgarrow.NewStringColumnWriter(alloc)
+		defer writer.Release()
 
 		// Original data that we'll modify after writing
 		data := []byte("original")
@@ -274,7 +268,7 @@ func TestColumnWriter_ZeroCopyBehavior(t *testing.T) {
 		copy(data, "modified")
 
 		// Build array and check the stored value
-		arr := builder.NewArray()
+		arr := writer.NewArray()
 		defer arr.Release()
 
 		stringArr, ok := arr.(*array.String)

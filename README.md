@@ -101,7 +101,7 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 - **Just-in-Time Metadata**: Schema discovered at query time, not at connection time
 - **Memory Usage**: 89% reduction in allocations vs previous implementation  
-- **Type Conversion**: 2-36 ns/op depending on data type complexity
+- **Type Conversion**: 2-9 ns/op with optimized string handling
 - **GC Impact**: 174 gc-ns/op measured with 256-row batches
 
 **Architecture:**
@@ -111,7 +111,7 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 **Type Conversion Speed:**
 - **Primitive types** (bool, integers, floats): 2-9 ns/op, zero allocations
-- **String types**: 26-36 ns/op with UTF-8 handling
+- **String types**: 8.5 ns/op, zero allocations with optimized buffer management
 - **Complex types** (intervals, timestamps): 12-13 ns/op
 
 **Memory Efficiency:**

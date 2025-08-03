@@ -65,7 +65,7 @@ Type-specific column writers for Arrow format conversion:
 - `BenchmarkInt64ColumnWriter` - 64-bit integers (~6.4 ns/op, 0 allocs)
 - `BenchmarkFloat32ColumnWriter` - 32-bit floats (~6.5 ns/op, 0 allocs)
 - `BenchmarkFloat64ColumnWriter` - 64-bit floats (~6.7 ns/op, 0 allocs)
-- `BenchmarkStringColumnWriter` - String conversion (~26 ns/op, 162 B/op)
+- `BenchmarkStringColumnWriter` - String conversion (~8.5 ns/op, 0 allocs)
 - `BenchmarkDate32ColumnWriter` - Date handling (~5.9 ns/op, 0 allocs)
 - `BenchmarkTimestampColumnWriter` - Timestamp conversion (~6.6 ns/op, 0 allocs)
 - `BenchmarkTime64ColumnWriter` - Time handling (~6.5 ns/op, 0 allocs)
@@ -148,7 +148,7 @@ PGArrow uses more memory upfront but provides structured Arrow records ready for
 
 ### Key Performance Patterns
 1. **Primitive types** (bool, integers, floats): ~2-9 ns/op, minimal allocations
-2. **String types**: ~26-36 ns/op, 2 allocations for UTF-8 conversion
+2. **String types**: ~8.5 ns/op, 0 allocations with optimized direct buffer management
 3. **Complex types** (intervals): ~12-13 ns/op, 1 allocation
 4. **Batch processing**: Linear scaling with optimal GC characteristics
 
@@ -220,9 +220,10 @@ This architecture optimizes for analytical workloads while maintaining compatibi
 ## Performance Summary
 
 **Measured performance characteristics:**
-- **Memory usage**: 89% reduction in allocations, 75% fewer allocs/op vs previous implementation
+- **Memory usage**: 89% reduction in allocations, 75% fewer allocs/op vs previous implementation  
+- **String processing**: 68-76% faster (8.5 ns/op), 100% memory reduction (0 allocs/op)
 - **GC impact**: 174 gc-ns/op measured with 256-row batches
-- **Type conversion**: 2-36 ns/op depending on data type complexity
+- **Type conversion**: 2-9 ns/op for all types with optimized string handling
 - **Batch processing**: Linear scaling with 256-row optimal batch size
 - **Output format**: Direct Arrow records for analytical processing
 
