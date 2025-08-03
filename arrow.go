@@ -9,6 +9,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const (
+	// ArrowFieldMetadataOverhead represents the estimated bytes of overhead per field in Arrow arrays
+	// This includes null bitmap, validity buffer, and other Arrow-specific metadata
+	ArrowFieldMetadataOverhead = 8
+)
+
 // ColumnInfo represents PostgreSQL column metadata for Arrow schema generation
 type ColumnInfo struct {
 	Name string
@@ -121,8 +127,15 @@ func (r *PGArrowRecordReader) parseRowsIntoBatchCompiled() int {
 
 		// Check if adding this row would exceed the maximum batch size limit
 		if accumulatedBytes > 0 && accumulatedBytes+rowBytes > MaxBatchSizeBytes {
-			// Put the tuple back for next batch (this is conceptual - parser doesn't support putback)
-			// Instead, we'll process this row but start a new batch after
+			// Since parser doesn't support putback, we must process this row first
+			// then break to start a new batch for subsequent rows
+			err = r.compiledSchema.ProcessRow(fieldData, nulls)
+			if err != nil {
+				r.err = err
+				return rowCount
+			}
+			rowCount++
+			// accumulatedBytes not updated since we break immediately
 			break
 		}
 
@@ -149,7 +162,7 @@ func calculateRowByteSize(fieldData [][]byte, nulls []bool) int {
 			totalBytes += 1
 		} else {
 			// Data size plus some overhead for Arrow array storage
-			totalBytes += len(data) + 8 // 8 bytes overhead per field for Arrow metadata
+			totalBytes += len(data) + ArrowFieldMetadataOverhead
 		}
 	}
 	return totalBytes

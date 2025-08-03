@@ -68,7 +68,7 @@ func TestByteBatchingPerformance(t *testing.T) {
 
 	// With byte-based batching, we should have dramatically fewer batches
 	// For 50K rows, we expect much fewer batches than the legacy approach
-	legacyBatchCount := testRowCount / pgarrow.OptimalBatchSizeGo // ~195 batches with legacy approach
+	legacyBatchCount := (testRowCount + pgarrow.OptimalBatchSizeGo - 1) / pgarrow.OptimalBatchSizeGo // Ceiling division for accurate count
 
 	t.Logf("Batch statistics:")
 	t.Logf("  Total rows: %d", totalRows)
