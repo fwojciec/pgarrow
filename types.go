@@ -36,8 +36,6 @@ const (
 	PostgresTimestampEpochMicros = 946684800000000
 )
 
-// ScanPlan interface moved to direct_copy_parser.go where it belongs
-
 // ColumnWriter defines the interface for direct binary data → Arrow column conversion
 // without intermediate allocations, enabling high-performance PostgreSQL → Arrow streaming.
 //
