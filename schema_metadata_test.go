@@ -23,7 +23,7 @@ func TestSchemaMetadata_PublicAPI(t *testing.T) {
 		{Name: "name", Type: arrow.BinaryTypes.String, Nullable: true},
 	}
 	arrowSchema := arrow.NewSchema(fields, nil)
-	pgOIDs := []uint32{20, 25} // TypeOIDInt8, TypeOIDText
+	pgOIDs := []uint32{pgarrow.TypeOIDInt8, pgarrow.TypeOIDText}
 
 	metadata, err := pgarrow.NewSchemaMetadata(pgOIDs, arrowSchema, alloc)
 	require.NoError(t, err)
@@ -36,7 +36,7 @@ func TestSchemaMetadata_PublicAPI(t *testing.T) {
 	fieldsMetadata := metadata.Fields()
 	require.Len(t, fieldsMetadata, 2)
 	require.Equal(t, "id", fieldsMetadata[0].Name)
-	require.Equal(t, uint32(20), fieldsMetadata[0].OID)
+	require.Equal(t, uint32(pgarrow.TypeOIDInt8), fieldsMetadata[0].OID)
 }
 
 // TestSchemaMetadata_ErrorCases tests error conditions not easily triggered through integration tests
@@ -49,7 +49,7 @@ func TestSchemaMetadata_ErrorCases(t *testing.T) {
 	// Schema mismatch: different number of fields vs OIDs
 	fields := []arrow.Field{{Name: "id", Type: arrow.PrimitiveTypes.Int64, Nullable: true}}
 	arrowSchema := arrow.NewSchema(fields, nil)
-	pgOIDs := []uint32{20, 25} // 2 OIDs for 1 field
+	pgOIDs := []uint32{pgarrow.TypeOIDInt8, pgarrow.TypeOIDText} // 2 OIDs for 1 field
 
 	metadata, err := pgarrow.NewSchemaMetadata(pgOIDs, arrowSchema, alloc)
 	require.Error(t, err)
