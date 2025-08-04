@@ -52,12 +52,15 @@ Column       | PostgreSQL Type  | Arrow Type     | Notes
 id           | BIGINT           | Int64          | Primary key, NOT NULL
 score        | DOUBLE PRECISION | Float64        | NOT NULL
 active       | BOOLEAN          | Boolean        | NOT NULL  
-name         | TEXT             | String         | NOT NULL, ~12 bytes avg
+name         | TEXT             | String         | NOT NULL, avg 12 bytes (format: 'user_' + number)
 created_date | DATE             | Date32         | NOT NULL
 ```
 
 - **Total Rows**: 46 million
-- **Row Size**: ~40-50 bytes (varies with name field)
+- **Row Size**: ~41 bytes per row in binary format
+  - Fixed fields: id (8) + score (8) + active (1) + created_date (4) = 21 bytes
+  - Variable field: name (avg 12 bytes for 'user_1' to 'user_46000000')
+  - Binary protocol overhead: ~8 bytes per row
 - **Dataset Size**: ~2.2 GB uncompressed
 
 **Important**: Throughput measurements (rows/sec) are specific to this 5-column schema. Tables with more columns or larger text fields will show different throughput characteristics.

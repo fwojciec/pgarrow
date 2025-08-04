@@ -32,7 +32,7 @@ for reader.Next() {
 
 ### Performance-First Design
 
-PGArrow uses PostgreSQL's SELECT protocol with binary format optimization, achieving **2.44M rows/sec** throughput - outperforming both COPY protocol (1.3M rows/sec) and Apache Arrow ADBC's C++ implementation (2.35M rows/sec) through:
+PGArrow uses PostgreSQL's SELECT protocol with binary format optimization, achieving **2.44M rows/sec** throughput (measured on 5-column table, see [benchmarks](docs/benchmarks.md) for full methodology) - outperforming both COPY protocol (1.3M rows/sec) and Apache Arrow ADBC's C++ implementation (2.35M rows/sec) through:
 
 - **SELECT over COPY**: 86% faster for read workflows ([detailed investigation](docs/performance-investigation-2025.md))
 - **Binary wire format**: Direct access via pgx's RawValues() API
