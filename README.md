@@ -4,7 +4,6 @@
 
 **PostgreSQL → Apache Arrow conversion in pure Go**
 
-> ⚡ **Active Development**: This library is under active performance optimization. We've identified [2x performance improvements](https://github.com/fwojciec/pgarrow/pull/91) coming soon in the next release. Current version is stable and production-ready, with even better performance on the horizon.
 
 Pure Go library that streams PostgreSQL query results directly to Arrow format using binary protocol. Designed for analytical workloads, data pipelines, and Arrow ecosystem integration.
 
@@ -30,6 +29,15 @@ for reader.Next() {
 | 📊 **Streaming** | Constant memory usage, handles any result size |
 | 🎯 **Arrow Native** | Drop-in `array.RecordReader`, ecosystem ready |
 | 🔒 **Safe Queries** | Full parameterization support prevents SQL injection |
+
+### Performance-First Design
+
+PGArrow uses PostgreSQL's SELECT protocol with binary format optimization, achieving **2.44M rows/sec** throughput (measured on 5-column table, see [benchmarks](docs/benchmarks.md) for full methodology) - outperforming both COPY protocol (1.3M rows/sec) and Apache Arrow ADBC's C++ implementation (2.35M rows/sec) through:
+
+- **SELECT over COPY**: 86% faster for read workflows ([detailed investigation](docs/performance-investigation-2025.md))
+- **Binary wire format**: Direct access via pgx's RawValues() API
+- **Optimized batching**: 200K rows per batch based on empirical testing
+- **Zero-allocation conversions**: All 17 supported types achieve zero heap allocations
 
 ## Quick Start
 
@@ -94,7 +102,7 @@ for reader.Next() {
 ## How It Works
 
 ```
-PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
+PostgreSQL → SELECT (Binary) → Direct Wire Parsing → Arrow Batches
                 ↳ No schema preloading
                 ↳ Constant memory usage  
                 ↳ Zero intermediate copies
@@ -102,22 +110,26 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 
 **Core Philosophy**: Just-in-time metadata, stream everything, copy nothing.
 
+Unlike libraries that use COPY protocol or require extensive metadata preloading, PGArrow leverages PostgreSQL's SELECT protocol with binary format optimization. This approach, validated through [comprehensive benchmarking](docs/technical-deep-dive-select-protocol.md), delivers superior performance for read-focused analytical workloads.
+
 ---
 
 ## Performance <a id="performance"></a>
 
-> 🚀 **Coming Soon**: [SELECT protocol implementation (Issue #92)](https://github.com/fwojciec/pgarrow/issues/92) will deliver 2x performance improvement (2.44M rows/sec vs current 1.2M) based on our [comprehensive investigation](https://github.com/fwojciec/pgarrow/pull/91).
 
 **Performance characteristics:**
 
-- **Just-in-Time Metadata**: Schema discovered at query time, not at connection time
+- **Throughput**: 2.44M rows/sec average (5-column table: int64, float64, bool, text, date)
+- **Protocol**: SELECT with binary format - 86% faster than COPY protocol
+- **Comparison**: 4% faster than Apache Arrow ADBC C++ implementation
 - **Memory Usage**: 89% reduction in allocations vs previous implementation  
 - **ColumnWriter Performance**: 5-26 ns/op with zero allocations for most types
 - **GC Impact**: 174 gc-ns/op measured with 256-row batches
 
 **Architecture:**
 - **Built on proven foundations**: [pgx](https://github.com/jackc/pgx) for PostgreSQL connectivity + [Apache Arrow Go](https://github.com/apache/arrow-go) for columnar format
-- **Just-in-time metadata discovery**: No expensive upfront schema queries
+- **SELECT protocol optimization**: QueryExecMode.CacheDescribe for automatic binary format
+- **Direct wire access**: pgx RawValues() API eliminates intermediate conversions
 - **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
 
 **ColumnWriter Performance:**
@@ -134,14 +146,16 @@ All 17 supported PostgreSQL data types achieve zero heap allocations during Arro
 - **Zero-copy binary data** handling where possible
 
 **Implementation approach:**
-- **Direct binary parsing**: PostgreSQL COPY protocol to Arrow format
+- **Direct binary parsing**: PostgreSQL wire format to Arrow without intermediate representations
+- **Optimal batching**: 200K rows per batch based on empirical testing
 - **Memory layout optimization**: Cache-aligned structures for Go runtime
-- **Batch size tuning**: 256 rows balances throughput and GC pressure  
-- **Zero-copy operations**: Minimize data movement where possible
+- **Zero-copy operations**: Direct access to pgx's wire buffers where possible
 
 ```bash
 go test -bench=. -benchmem  # Run comprehensive 80+ benchmark suite
 ```
+
+See [docs/benchmarks.md](docs/benchmarks.md) for full benchmark methodology and test dataset details.
 
 ---
 
@@ -184,9 +198,12 @@ While developed with rigorous quality processes, this software should be conside
 **⚠️ Known limits:**
 - Alpha quality - production validation needed
 - Limited to 17 PostgreSQL types currently
+- Read-only operations (no write support)
 
 **🎯 Design decisions:**
 - **All columns marked nullable**: Arrow schema always shows `nullable=true` regardless of PostgreSQL `NOT NULL` constraints, optimizing for performance and compatibility with major Arrow engines (DuckDB, DataFusion, Polars) that ignore nullability metadata anyway ([research details](docs/nullability-tradeoff-research.md))
+- **SELECT protocol focus**: Optimized for read workflows, deliberately choosing SELECT over COPY based on measured 86% performance improvement for analytical queries
+- **Pure Go implementation**: No CGO dependencies, prioritizing deployment simplicity and maintainability over potential micro-optimizations
 
 ---
 

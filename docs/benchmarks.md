@@ -44,10 +44,26 @@ go test -bench=. -benchmem -run=^$
 - **Connection**: Local network (minimal latency)
 
 ### Test Dataset
-- **Table**: `performance_test`
-- **Rows**: 46 million
-- **Columns**: 5 (id, score, active, name, created_date)
-- **Data types**: int64, float64, bool, string, date32
+
+**Table Structure**: `performance_test`
+```
+Column       | PostgreSQL Type  | Arrow Type     | Notes
+-------------|------------------|----------------|------------------
+id           | BIGINT           | Int64          | Primary key, NOT NULL
+score        | DOUBLE PRECISION | Float64        | NOT NULL
+active       | BOOLEAN          | Boolean        | NOT NULL  
+name         | TEXT             | String         | NOT NULL, avg 12 bytes (format: 'user_' + number)
+created_date | DATE             | Date32         | NOT NULL
+```
+
+- **Total Rows**: 46 million
+- **Row Size**: ~41 bytes per row in binary format
+  - Fixed fields: id (8) + score (8) + active (1) + created_date (4) = 21 bytes
+  - Variable field: name (avg 12 bytes for 'user_1' to 'user_46000000')
+  - Binary protocol overhead: ~8 bytes per row
+- **Dataset Size**: ~2.2 GB uncompressed
+
+**Important**: Throughput measurements (rows/sec) are specific to this 5-column schema. Tables with more columns or larger text fields will show different throughput characteristics.
 
 ## Large-Scale Performance Results
 
@@ -206,11 +222,11 @@ benchstat baseline.txt current.txt
 ### Test Data Generation
 ```sql
 CREATE TABLE performance_test (
-    id BIGINT,
-    score DOUBLE PRECISION,
-    active BOOLEAN,
-    name TEXT,
-    created_date DATE
+    id BIGINT NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
+    active BOOLEAN NOT NULL,
+    name TEXT NOT NULL,
+    created_date DATE NOT NULL
 );
 
 -- Generate 46M rows
