@@ -100,6 +100,7 @@ func (sm *SchemaMetadata) Release() {
 	}
 
 	// Clear references
+	// Note: This simplified release is intentional since SchemaMetadata no longer manages builders or an allocator.
 	sm.fields = nil
 	sm.schema = nil
 	sm.released = true
