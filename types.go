@@ -1,15 +1,5 @@
 package pgarrow
 
-import (
-	"encoding/binary"
-	"fmt"
-	"math"
-
-	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/apache/arrow-go/v18/arrow/array"
-	"github.com/apache/arrow-go/v18/arrow/memory"
-)
-
 const (
 	// PostgreSQL type OIDs for supported data types
 	TypeOIDBool        = 16
