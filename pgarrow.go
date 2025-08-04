@@ -3,7 +3,6 @@ package pgarrow
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
@@ -241,29 +240,15 @@ func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql str
 	return schema, fieldOIDs, nil
 }
 
-// executeCopyAndParseWithMetadata runs COPY TO BINARY and parses the result using SchemaMetadata
-// This uses the lightweight ADBC-style approach with direct parsing functions
+// executeCopyAndParseWithMetadata runs COPY TO BINARY and parses the result using direct parsing
+// This uses the high-performance DirectCopyParser that eliminates goroutine overhead
 func (p *Pool) executeCopyAndParseWithMetadata(ctx context.Context, conn *pgxpool.Conn, sql string, schemaMetadata *SchemaMetadata) (array.RecordReader, error) {
 	copySQL := fmt.Sprintf("COPY (%s) TO STDOUT (FORMAT BINARY)", sql)
 
-	// Set up pipe for COPY data
-	pipeReader, pipeWriter := io.Pipe()
-	copyDone := make(chan struct{})
-
-	go func() {
-		defer pipeWriter.Close()
-		defer close(copyDone) // Signal completion
-		_, err := conn.Conn().PgConn().CopyTo(ctx, pipeWriter, copySQL)
-		if err != nil {
-			// Close pipe writer with error to propagate error to reader
-			pipeWriter.CloseWithError(err)
-		}
-	}()
-
-	// Create RecordReader using SchemaMetadata for optimal performance
-	reader, err := newSchemaMetadataRecordReader(schemaMetadata, conn, pipeReader, copyDone)
+	// Create streaming reader that processes data in batches
+	reader, err := NewDirectRecordReader(ctx, conn, schemaMetadata.Schema(), copySQL, p.allocator)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating direct reader: %w", err)
 	}
 
 	return reader, nil
