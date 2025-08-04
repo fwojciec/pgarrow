@@ -32,9 +32,9 @@ for reader.Next() {
 
 ### Performance-First Design
 
-PGArrow uses PostgreSQL's SELECT protocol with binary format optimization, achieving **2.44M rows/sec** throughput (measured on 5-column table, see [benchmarks](docs/benchmarks.md) for full methodology) - outperforming both COPY protocol (1.3M rows/sec) and Apache Arrow ADBC's C++ implementation (2.35M rows/sec) through:
+PGArrow uses PostgreSQL's SELECT protocol with binary format optimization, achieving performance comparable to Apache Arrow ADBC - the gold standard for database-to-Arrow conversion. Our implementation achieves **2.44M rows/sec** throughput (measured on 5-column table, see [benchmarks](docs/benchmarks.md) for full methodology), matching ADBC's excellent performance through:
 
-- **SELECT over COPY**: 86% faster for read workflows ([detailed investigation](docs/performance-investigation-2025.md))
+- **SELECT over COPY**: 86% faster than COPY protocol for read workflows ([detailed investigation](docs/performance-investigation-2025.md))
 - **Binary wire format**: Direct access via pgx's RawValues() API
 - **Optimized batching**: 200K rows per batch based on empirical testing
 - **Zero-allocation conversions**: All 17 supported types achieve zero heap allocations
@@ -121,7 +121,7 @@ Unlike libraries that use COPY protocol or require extensive metadata preloading
 
 - **Throughput**: 2.44M rows/sec average (5-column table: int64, float64, bool, text, date)
 - **Protocol**: SELECT with binary format - 86% faster than COPY protocol
-- **Comparison**: 4% faster than Apache Arrow ADBC C++ implementation
+- **Comparison**: Performance comparable to Apache Arrow ADBC (the reference standard)
 - **Memory Usage**: 89% reduction in allocations vs previous implementation  
 - **ColumnWriter Performance**: 5-26 ns/op with zero allocations for most types
 - **GC Impact**: 174 gc-ns/op measured with 256-row batches
@@ -172,7 +172,7 @@ This codebase is written by Claude with both Copilot and Gemini performing code 
 - **Performance Validation**: Benchmarks ensure efficient type conversions and memory usage
 - **Multi-Layer Validation**: Race detection (`t.Parallel()` + `-race`), linting, integration testing via `make validate`
 - **AI-AI Collaboration**: Copilot and Gemini reviews trigger investigation, not blind acceptance
-- **Reference Architecture**: C++ ADBC implementation provides invaluable implementation guidance
+- **Reference Architecture**: Apache Arrow ADBC serves as our gold standard for quality and performance
 
 ### Production Readiness
 

@@ -1,197 +1,46 @@
 # PGArrow Examples
 
-This directory contains example applications demonstrating how to use PGArrow to convert PostgreSQL query results directly to Apache Arrow format.
+Example applications demonstrating PGArrow usage.
 
 ## Prerequisites
 
-- Go 1.24.5 or later
-- PostgreSQL database instance
-- `DATABASE_URL` environment variable set
+- Go 1.23 or later
+- PostgreSQL database
+- `DATABASE_URL` environment variable
 
-## Examples
+## Running Examples
 
-### 1. Simple Example (`simple/`)
-
-Basic PGArrow usage demonstrating:
-- Pool creation and management
-- Simple queries with `QueryArrow()`
-- Accessing Arrow record data
-- Memory management with `defer record.Release()`
-
-**Run:**
+### Simple Example
+Basic usage with connection pooling and queries:
 ```bash
 cd simple
 export DATABASE_URL="postgres://user:password@localhost/dbname"
 go run main.go
 ```
 
-### 2. Types Example (`types/`)
-
-Comprehensive demonstration of all 17 supported PostgreSQL data types including:
-- `bool`, `bytea`
-- `int2/smallint`, `int4/integer`, `int8/bigint` 
-- `float4/real`, `float8/double precision`
-- `text`, `varchar`, `bpchar/char(n)`, `name`, `"char"`
-- `date`, `time`, `timestamp`, `timestamptz`, `interval`
-
-Also demonstrates:
-- NULL value handling
-- Mixed data queries with some NULL values
-- Memory tracking with `memory.CheckedAllocator`
-
-**Run:**
+### Types Example
+Demonstrates all supported PostgreSQL data types:
 ```bash
 cd types
 export DATABASE_URL="postgres://user:password@localhost/dbname"
 go run main.go
 ```
 
-## Database Setup
+## Environment Setup
 
-These examples work with any PostgreSQL database and don't require specific tables. They use:
-- Simple `SELECT` statements with literal values
-- `VALUES` clauses to create inline data
-- PostgreSQL type casting (e.g., `123::int2`)
-
-## 🔒 Safe Parameterized Queries
-
-PGArrow supports **full query parameterization** for safe, dynamic queries:
-
-✅ **Single parameter:**
-```go
-// Safe parameterized query - prevents SQL injection
-record, err := pool.QueryArrow(ctx, "SELECT * FROM my_table WHERE id = $1", 123)
-```
-
-✅ **Multiple parameters:**
-```go
-// Multiple parameters with different types
-record, err := pool.QueryArrow(ctx, 
-    "SELECT * FROM users WHERE age > $1 AND name = $2", 
-    21, "Alice")
-```
-
-✅ **Dynamic filtering:**
-```go  
-// Build dynamic queries safely
-minScore := 90.0
-active := true
-record, err := pool.QueryArrow(ctx, 
-    "SELECT * FROM users WHERE score >= $1 AND active = $2",
-    minScore, active)
-```
-
-💡 **Parameters are type-safe and prevent SQL injection. PostgreSQL handles type conversion based on the placeholder context.**
-
-### Example DATABASE_URL formats:
-
-**Local PostgreSQL:**
 ```bash
+# Local PostgreSQL
 export DATABASE_URL="postgres://postgres:password@localhost:5432/postgres"
-```
 
-**PostgreSQL with SSL:**
-```bash
+# With SSL
 export DATABASE_URL="postgres://user:pass@host:5432/db?sslmode=require"
-```
 
-**Connection pooling options:**
-```bash
+# With connection pooling
 export DATABASE_URL="postgres://user:pass@host:5432/db?pool_max_conns=10"
 ```
 
-## Expected Output
+## Notes
 
-### Simple Example
-```
-Query returned 1 rows, 3 columns
-Schema: schema:
-  fields: 3
-    - id: type=int32
-    - message: type=utf8
-    - active: type=bool
-
-Row 0: id=1, message=Hello World, active=true
-
---- Table Query Example ---
-Table query returned 3 rows
-
-PGArrow simple example completed successfully!
-```
-
-### Types Example  
-```
-=== PGArrow Supported Data Types Demo ===
-
-Query returned 1 rows, 7 columns
-Schema: schema:
-  fields: 7
-    - bool_col: type=bool
-    - int2_col: type=int16
-    - int4_col: type=int32
-    - int8_col: type=int64
-    - float4_col: type=float32
-    - float8_col: type=float64
-    - text_col: type=utf8
-
-Row 0:
-  bool:   true
-  int2:   123
-  int4:   456789
-  int8:   123456789012
-  float4: 3.140000
-  float8: 2.718281828
-  text:   Hello PGArrow!
-
-=== NULL Value Handling ===
-...
-
-PGArrow types example completed successfully!
-```
-
-## Troubleshooting
-
-**Connection Issues:**
-- Verify PostgreSQL is running and accessible
-- Check `DATABASE_URL` format and credentials
-- Ensure network connectivity to database host
-
-**Build Issues:**
-- Verify Go 1.24.5+ is installed: `go version`
-- Run `go mod tidy` in the project root
-- Check for missing dependencies: `go mod verify`
-
-**Runtime Issues:**
-- Enable verbose logging by modifying examples
-- Check PostgreSQL logs for connection/query errors
-- Verify supported PostgreSQL version (9.5+)
-
-## Performance Notes
-
-PGArrow performance characteristics:
-
-### Architecture Benefits
-- **Built on pgx**: Uses proven PostgreSQL driver as foundation
-- **Just-in-time metadata**: Schema discovered at query time, not at connection time
-- **Pool-based design**: Uses pgxpool for connection management
-
-### Memory Efficiency  
-- **Current**: 38,284 B/op, 1,538 allocs/op (optimized implementation)
-- **Previous**: 354,954 B/op, 6,145 allocs/op (unoptimized implementation)
-- **89% memory reduction**, **75% fewer allocations**
-- **GC-optimized batching**: Sub-microsecond GC impact (174 gc-ns/op)
-- **Optimal batch size**: 256 rows for Go runtime efficiency
-- **Zero-copy binary data**: Direct PostgreSQL binary format parsing
-
-### Type Conversion Performance
-- **Primitive types**: 2-9 ns/op (bool, integers, floats)
-- **String types**: 26-36 ns/op with UTF-8 handling
-- **Complex types**: 12-13 ns/op (intervals, timestamps)
-- **Zero allocations** for most primitive type conversions
-
-### Architecture Benefits
-- **Current implementation**: 54% faster execution than previous version
-- **Pure Go**: Zero CGO dependencies, easy deployment
-- **Arrow Native**: Direct Arrow record output, ready for analytical workloads
-
-For comprehensive performance analysis, see [`/docs/benchmarks.md`](../docs/benchmarks.md) with 80+ benchmark functions.
+- Examples use inline data - no tables required
+- Supports parameterized queries for SQL injection prevention
+- See individual example directories for specific functionality

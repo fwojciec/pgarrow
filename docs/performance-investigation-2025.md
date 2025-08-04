@@ -2,9 +2,9 @@
 
 ## Executive Summary
 
-Through systematic investigation of PostgreSQL to Arrow data conversion, we discovered that **SELECT protocol with proper optimizations outperforms COPY BINARY protocol by 1.8x** and beats the C++ ADBC implementation by 4% on average. This challenges the conventional wisdom that COPY is always faster for bulk data operations.
+Through systematic investigation of PostgreSQL to Arrow data conversion, we discovered that **SELECT protocol with proper optimizations outperforms COPY BINARY protocol by 1.8x** and achieves performance comparable to Apache Arrow ADBC - the gold standard for database-to-Arrow conversion.
 
-**Key Achievement**: Pure Go implementation achieving **2.44M rows/sec average** (2.60M peak at 10M rows), beating ADBC's C++ implementation (2.35M rows/sec average).
+**Key Achievement**: Pure Go implementation achieving **2.44M rows/sec average** (2.60M peak at 10M rows), matching the excellent performance of ADBC's C++ implementation.
 
 ## Investigation Methodology
 
@@ -160,10 +160,10 @@ for rows.Next() {
 - **46M rows**: 2.27M rows/sec (89% faster than COPY)
 - **Average**: 2.44M rows/sec
 
-### vs ADBC (C++ Implementation)
-- **10M rows**: Ultimate 2.60M vs ADBC 2.46M (+6%)
-- **46M rows**: Ultimate 2.27M vs ADBC 2.25M (+1%)
-- **Average**: Ultimate 2.44M vs ADBC 2.35M (+4%)
+### Performance Comparable to ADBC
+- **10M rows**: PGArrow 2.60M vs ADBC 2.46M rows/sec
+- **46M rows**: PGArrow 2.27M vs ADBC 2.25M rows/sec
+- **Average**: Both achieve ~2.4M rows/sec - excellent performance
 
 ## Comprehensive Test Results
 
@@ -176,8 +176,8 @@ for rows.Next() {
 | SELECT without casts | 2.3M | 2.0M | Binary by default |
 | SELECT + CacheDescribe | 2.4M | 2.1M | Optimal QueryExecMode |
 | SELECT + RawValues | 2.6M | 2.3M | Direct binary parsing |
-| **Ultimate v2** | **2.6M** | **2.3M** | **All optimizations combined** |
-| ADBC (C++ baseline) | 2.5M | 2.3M | CGO dependency |
+| **PGArrow Optimized** | **2.6M** | **2.3M** | **All optimizations combined** |
+| ADBC (Gold Standard) | 2.5M | 2.3M | Reference implementation |
 
 ### Cursor vs Direct Query
 Direct SELECT consistently outperforms cursor-based approaches:
@@ -265,7 +265,7 @@ values := rows.RawValues()
 ## Conclusions
 
 1. **SELECT > COPY for PostgreSQL to Arrow conversion** - 1.8x faster at all scales
-2. **Pure Go can beat C++** - 4% faster than ADBC with proper optimizations
+2. **Pure Go matches ADBC performance** - Comparable to the gold standard implementation
 3. **Binary protocol is default in pgx** - No type casts needed
 4. **Safe operations are fast** - No need for unsafe optimizations
 5. **QueryExecMode matters** - 25% gain from CacheDescribe mode
@@ -314,6 +314,6 @@ for rows.Next() {
 // All configurations tested achieve:
 // - 2.44M rows/sec average
 // - 2.60M rows/sec peak
-// - Beats ADBC C++ by 4%
+// - Matches ADBC performance
 // - 86% faster than COPY BINARY
 ```

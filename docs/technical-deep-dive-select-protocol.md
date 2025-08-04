@@ -393,7 +393,7 @@ The SELECT protocol with proper optimizations provides:
 1. **2x performance** over COPY BINARY
 2. **70% less code** complexity
 3. **Better integration** with pgx ecosystem
-4. **Proven superiority** over C++ ADBC
+4. **Performance comparable** to Apache Arrow ADBC (the gold standard)
 
 The key innovations are:
 - QueryExecMode.CacheDescribe for automatic binary protocol
@@ -402,4 +402,4 @@ The key innovations are:
 - Optimal 200K row batch size
 - GOGC tuning for batch workloads
 
-This approach maximizes PostgreSQL to Arrow conversion performance while maintaining code simplicity and safety.
+This approach achieves PostgreSQL to Arrow conversion performance matching the reference ADBC implementation while maintaining code simplicity and safety in pure Go.
