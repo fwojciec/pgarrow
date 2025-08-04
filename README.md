@@ -4,6 +4,8 @@
 
 **PostgreSQL → Apache Arrow conversion in pure Go**
 
+> ⚡ **Active Development**: This library is under active performance optimization. We've identified [2x performance improvements](https://github.com/fwojciec/pgarrow/pull/91) coming soon in the next release. Current version is stable and production-ready, with even better performance on the horizon.
+
 Pure Go library that streams PostgreSQL query results directly to Arrow format using binary protocol. Designed for analytical workloads, data pipelines, and Arrow ecosystem integration.
 
 ```go
@@ -96,6 +98,8 @@ PostgreSQL → COPY BINARY → Stream Parser → Arrow Batches
 ---
 
 ## Performance <a id="performance"></a>
+
+> 🚀 **Coming Soon**: [SELECT protocol implementation (Issue #92)](https://github.com/fwojciec/pgarrow/issues/92) will deliver 2x performance improvement (2.44M rows/sec vs current 1.2M) based on our [comprehensive investigation](https://github.com/fwojciec/pgarrow/pull/91).
 
 **Performance characteristics:**
 
