@@ -194,10 +194,10 @@ func TestLargeDataIntegrity(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create data large enough to exceed MaxBatchSizeBytes (64MB) and force multiple batches
-	// Use large text fields to ensure we hit the boundary condition
-	largeTextSize := 100000 // 100KB per text field
-	expectedRows := 1000    // 1000 rows * ~100KB each = ~100MB total (exceeds 64MB limit)
+	// Create data large enough to force multiple batches with SELECT protocol
+	// With 200K row batch size, we need >200K rows to test batching
+	largeTextSize := 1000  // 1KB per text field (reduced since we're testing row batching, not byte batching)
+	expectedRows := 500000 // 500K rows will create 3 batches (200K + 200K + 100K)
 
 	sql := fmt.Sprintf(`
 		SELECT 
@@ -256,8 +256,8 @@ func TestLargeDataIntegrity(t *testing.T) {
 	// Verify we actually forced multiple batches (this test's purpose)
 	assert.Greater(t, batchCount, 1, "Test should force multiple batches to validate boundary conditions")
 
-	// Verify no single batch is impossibly large
-	assert.Less(t, largestBatchSize, int64(expectedRows), "Single batch shouldn't contain all rows")
+	// With 500K rows and 200K batch size, we expect 3 batches
+	assert.Equal(t, 3, batchCount, "Expected 3 batches for 500K rows with 200K batch size")
 
 	// Check for sequential IDs to ensure no gaps
 	for i := 1; i <= expectedRows; i++ {
