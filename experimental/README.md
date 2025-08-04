@@ -40,15 +40,26 @@ for {
 
 ## Running the Benchmark
 
+### Prerequisites
+
+Set the database connection URL via environment variable:
+```bash
+export PGARROW_TEST_DB_URL="postgres://bookscanner:bookscanner@localhost:5432/bookscanner?sslmode=disable"
+```
+
+If not set, tests will use the default connection string above and log a warning.
+
+### Running Tests
+
 ```bash
 # Ensure the test database is set up
 psql -U bookscanner -d bookscanner -f /Users/filip/code/go/pgarrow-test/setup.sql
 
-# Run the performance test
-go test -v -run TestDirectV3PerformanceMetrics ./experimental
+# Run the performance test (requires integration tag)
+go test -v -tags integration -run TestDirectV3PerformanceMetrics ./experimental
 
-# Run the benchmark
-go test -bench BenchmarkDirectV3Performance ./experimental
+# Run the benchmark (requires integration tag)
+go test -tags integration -bench BenchmarkDirectV3Performance ./experimental
 ```
 
 ## Implementation Details

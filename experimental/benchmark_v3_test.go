@@ -6,6 +6,7 @@ package experimental_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -20,8 +21,12 @@ import (
 func BenchmarkDirectV3Performance(b *testing.B) {
 	ctx := context.Background()
 
-	// Database connection
-	dbURL := "postgres://bookscanner:bookscanner@localhost:5432/bookscanner?sslmode=disable"
+	// Database connection from environment variable
+	dbURL := os.Getenv("PGARROW_TEST_DB_URL")
+	if dbURL == "" {
+		dbURL = "postgres://bookscanner:bookscanner@localhost:5432/bookscanner?sslmode=disable"
+		b.Logf("PGARROW_TEST_DB_URL not set, using default: %s", dbURL)
+	}
 
 	conn, err := pgx.Connect(ctx, dbURL)
 	if err != nil {
@@ -61,8 +66,12 @@ func TestDirectV3PerformanceMetrics(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// Database connection
-	dbURL := "postgres://bookscanner:bookscanner@localhost:5432/bookscanner?sslmode=disable"
+	// Database connection from environment variable
+	dbURL := os.Getenv("PGARROW_TEST_DB_URL")
+	if dbURL == "" {
+		dbURL = "postgres://bookscanner:bookscanner@localhost:5432/bookscanner?sslmode=disable"
+		t.Logf("PGARROW_TEST_DB_URL not set, using default: %s", dbURL)
+	}
 
 	conn, err := pgx.Connect(ctx, dbURL)
 	if err != nil {
