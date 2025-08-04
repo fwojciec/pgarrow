@@ -53,29 +53,35 @@ These examples work with any PostgreSQL database and don't require specific tabl
 - `VALUES` clauses to create inline data
 - PostgreSQL type casting (e.g., `123::int2`)
 
-## 📝 Literal SQL Design
+## 🔒 Safe Parameterized Queries
 
-PGArrow uses **literal SQL values** for optimal performance with the COPY BINARY protocol:
+PGArrow supports **full query parameterization** for safe, dynamic queries:
 
-✅ **Literal values approach:**
+✅ **Single parameter:**
 ```go
-// Use literal values directly in SQL for best performance
-record, err := pool.QueryArrow(ctx, "SELECT * FROM my_table WHERE id = 123")
+// Safe parameterized query - prevents SQL injection
+record, err := pool.QueryArrow(ctx, "SELECT * FROM my_table WHERE id = $1", 123)
 ```
 
-✅ **Multiple conditions:**
+✅ **Multiple parameters:**
 ```go
-// Build SQL with literal values
-record, err := pool.QueryArrow(ctx, "SELECT * FROM users WHERE id = 123 AND name = 'Alice'")
+// Multiple parameters with different types
+record, err := pool.QueryArrow(ctx, 
+    "SELECT * FROM users WHERE age > $1 AND name = $2", 
+    21, "Alice")
 ```
 
-✅ **Inline data generation:**
+✅ **Dynamic filtering:**
 ```go  
-// Use VALUES clauses for test data or small datasets
-record, err := pool.QueryArrow(ctx, "SELECT * FROM (VALUES (1, 'Alice'), (2, 'Bob')) AS my_table(id, name)")
+// Build dynamic queries safely
+minScore := 90.0
+active := true
+record, err := pool.QueryArrow(ctx, 
+    "SELECT * FROM users WHERE score >= $1 AND active = $2",
+    minScore, active)
 ```
 
-💡 **For dynamic queries with user input, use pgx directly with proper parameterization, then pass results to PGArrow if needed, or build SQL strings with proper escaping/validation.**
+💡 **Parameters are type-safe and prevent SQL injection. PostgreSQL handles type conversion based on the placeholder context.**
 
 ### Example DATABASE_URL formats:
 

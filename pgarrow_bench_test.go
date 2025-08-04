@@ -32,33 +32,39 @@ func BenchmarkQueryArrowVsPgxText(b *testing.B) {
 	benchmarks := []struct {
 		name string
 		sql  string
+		args []any
 	}{
 		{
 			name: "SimpleTypes",
-			sql:  "SELECT 1::int4 as id, 'test'::text as name, true::bool as active",
+			sql:  "SELECT $1::int4 as id, $2::text as name, $3::bool as active",
+			args: []any{1, "test", true},
 		},
 		{
 			name: "AllSupportedTypes",
 			sql: `SELECT 
-				true::bool as col_bool,
-				123::int2 as col_int2,
-				456789::int4 as col_int4,
-				123456789012::int8 as col_int8,
-				3.14::float4 as col_float4,
-				2.718281828::float8 as col_float8,
-				'Hello World'::text as col_text`,
+				$1::bool as col_bool,
+				$2::int2 as col_int2,
+				$3::int4 as col_int4,
+				$4::int8 as col_int8,
+				$5::float4 as col_float4,
+				$6::float8 as col_float8,
+				$7::text as col_text`,
+			args: []any{true, int16(123), int32(456789), int64(123456789012), float32(3.14), 2.718281828, "Hello World"},
 		},
 		{
 			name: "SmallResultSet",
-			sql:  "SELECT i as id, 'user_' || i::text as name FROM generate_series(1, 10) i",
+			sql:  "SELECT i as id, 'user_' || i::text as name FROM generate_series($1, $2) i",
+			args: []any{1, 10},
 		},
 		{
 			name: "MediumResultSet",
-			sql:  "SELECT i as id, 'user_' || i::text as name FROM generate_series(1, 100) i",
+			sql:  "SELECT i as id, 'user_' || i::text as name FROM generate_series($1, $2) i",
+			args: []any{1, 100},
 		},
 		{
 			name: "LargeResultSet",
-			sql:  "SELECT i as id, 'user_' || i::text as name FROM generate_series(1, 1000) i",
+			sql:  "SELECT i as id, 'user_' || i::text as name FROM generate_series($1, $2) i",
+			args: []any{1, 1000},
 		},
 		{
 			name: "MixedTypesWithNulls",
@@ -83,7 +89,7 @@ func BenchmarkQueryArrowVsPgxText(b *testing.B) {
 
 				b.ResetTimer()
 				for b.Loop() {
-					reader, err := pool.QueryArrow(ctx, bm.sql)
+					reader, err := pool.QueryArrow(ctx, bm.sql, bm.args...)
 					if err != nil {
 						b.Fatalf("PGArrow query failed: %v", err)
 					}
@@ -106,7 +112,7 @@ func BenchmarkQueryArrowVsPgxText(b *testing.B) {
 			b.Run("PgxText", func(b *testing.B) {
 				b.ResetTimer()
 				for b.Loop() {
-					rows, err := conn.Query(ctx, bm.sql)
+					rows, err := conn.Query(ctx, bm.sql, bm.args...)
 					if err != nil {
 						b.Fatalf("pgx query failed: %v", err)
 					}

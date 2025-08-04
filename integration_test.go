@@ -92,9 +92,14 @@ func TestPoolQueryArrowAllDataTypesIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text FROM (VALUES (true, 100::int2, 1000::int4, 10000::int8, 3.14::float4, 2.71828::float8, 'hello'), (false, 200::int2, 2000::int4, 20000::int8, 6.28::float4, 1.41421::float8, 'world'), (null, null, null, null, null, null, null)) AS test_all_types(col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text) WHERE col_bool IS NOT NULL ORDER BY col_int2"
+	// Use parameterized query for safety
+	sql := "SELECT col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text FROM (VALUES ($1::bool, $2::int2, $3::int4, $4::int8, $5::float4, $6::float8, $7::text), ($8::bool, $9::int2, $10::int4, $11::int8, $12::float4, $13::float8, $14::text), (null, null, null, null, null, null, null)) AS test_all_types(col_bool, col_int2, col_int4, col_int8, col_float4, col_float8, col_text) WHERE col_bool IS NOT NULL ORDER BY col_int2"
+	args := []any{
+		true, int16(100), int32(1000), int64(10000), float32(3.14), 2.71828, "hello",
+		false, int16(200), int32(2000), int64(20000), float32(6.28), 1.41421, "world",
+	}
 
-	reader, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql, args...)
 	require.NoError(t, err)
 	require.NotNil(t, reader)
 	defer reader.Release()
@@ -174,9 +179,11 @@ func TestPoolQueryArrowEmptyResultIntegration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id > 100"
+	// Use parameterized query - searching for id > $1
+	sql := "SELECT id, name FROM (VALUES (1, 'first', true), (2, 'second', false)) AS simple_test(id, name, active) WHERE id > $1"
+	threshold := 100
 
-	reader, err := pool.QueryArrow(ctx, sql)
+	reader, err := pool.QueryArrow(ctx, sql, threshold)
 	require.NoError(t, err)
 	require.NotNil(t, reader)
 	defer reader.Release()

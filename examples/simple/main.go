@@ -51,6 +51,12 @@ func main() {
 		return
 	}
 
+	// Demonstrate parameterized queries for SQL injection prevention
+	if err := runParameterizedQuery(ctx, pool); err != nil {
+		fmt.Printf("Parameterized query failed: %v\n", err)
+		return
+	}
+
 	// Demonstrate NULL handling
 	if err := runNullHandlingQuery(ctx, pool); err != nil {
 		fmt.Printf("NULL handling query failed: %v\n", err)
@@ -88,17 +94,18 @@ func mustCastColumn[T any](record arrow.Record, index int) (T, error) {
 }
 
 func runBasicQuery(ctx context.Context, pool *pgarrow.Pool) error {
-	fmt.Println("=== Basic Query with NULL Safety ===")
+	fmt.Println("=== Basic Query with Parameters ===")
 
+	// Using parameterized query for safety
 	query := `
 		SELECT 
-			1 as id,                           -- nullable int4 
-			'Hello World' as message,          -- nullable text
-			true as active,                    -- nullable bool
-			'2024-01-01'::date as created_date -- nullable date
+			$1::int4 as id,
+			$2::text as message,
+			$3::bool as active,
+			$4::date as created_date
 	`
 
-	reader, err := pool.QueryArrow(ctx, query)
+	reader, err := pool.QueryArrow(ctx, query, 1, "Hello World", true, "2024-01-01")
 	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
@@ -197,10 +204,12 @@ func printBasicQueryRow(i int, idCol *array.Int32, messageCol *array.String, act
 }
 
 func runTableQuery(ctx context.Context, pool *pgarrow.Pool) error {
-	fmt.Println("\n=== Realistic Table Query with Batch Processing ===")
+	fmt.Println("\n=== Table Query with Parameters ===")
 
 	query := createTableDemoQuery()
-	reader, err := pool.QueryArrow(ctx, query)
+	// Filter for scores above 90.0
+	minScore := 90.0
+	reader, err := pool.QueryArrow(ctx, query, minScore)
 	if err != nil {
 		return fmt.Errorf("table query failed: %w", err)
 	}
@@ -223,6 +232,7 @@ func createTableDemoQuery() string {
 			(3, 'Charlie Brown', 92.8::float8, true, '2024-01-17 09:15:00'::timestamp),
 			(4, 'Diana Prince', 98.1::float8, true, '2024-01-18 16:20:00'::timestamp)
 		) AS users(id, name, score, active, created_at)
+		WHERE score > $1
 		ORDER BY score DESC
 	`
 }
@@ -283,6 +293,67 @@ func processTableBatch(record arrow.Record) error {
 			idCol.Value(i), nameCol.Value(i), scoreCol.Value(i),
 			activeCol.Value(i), timestampCol.Value(i))
 	}
+
+	return nil
+}
+
+func runParameterizedQuery(ctx context.Context, pool *pgarrow.Pool) error {
+	fmt.Println("\n=== Parameterized Query Demonstration ===")
+	fmt.Println("Showing SQL injection prevention and type safety")
+
+	// Example with multiple parameters of different types
+	query := `
+		SELECT 
+			id,
+			name,
+			email,
+			age,
+			score
+		FROM (VALUES 
+			(1, 'Alice', 'alice@example.com', 25, 95.5),
+			(2, 'Bob', 'bob@example.com', 30, 87.2),
+			(3, 'Charlie', 'charlie@example.com', 35, 92.8),
+			(4, 'Diana', 'diana@example.com', 28, 98.1),
+			(5, 'Eve', 'eve@example.com', 32, 89.5)
+		) AS users(id, name, email, age, score)
+		WHERE age > $1 AND score >= $2 AND name LIKE $3
+		ORDER BY score DESC
+	`
+
+	// Parameters: age > 27, score >= 90.0, name starts with any letter
+	minAge := 27
+	minScore := 90.0
+	namePattern := "%" // Match all names
+
+	reader, err := pool.QueryArrow(ctx, query, minAge, minScore, namePattern)
+	if err != nil {
+		return fmt.Errorf("parameterized query failed: %w", err)
+	}
+	defer reader.Release()
+
+	fmt.Printf("Query: Find users older than %d with score >= %.1f\n", minAge, minScore)
+
+	for reader.Next() {
+		record := reader.Record()
+
+		_, _ = mustCastColumn[*array.Int32](record, 0) // id not displayed
+		nameCol, _ := mustCastColumn[*array.String](record, 1)
+		emailCol, _ := mustCastColumn[*array.String](record, 2)
+		ageCol, _ := mustCastColumn[*array.Int32](record, 3)
+		scoreCol, _ := mustCastColumn[*array.Float64](record, 4)
+
+		for i := 0; i < int(record.NumRows()); i++ {
+			fmt.Printf("  Found: %s (age=%d, score=%.1f, email=%s)\n",
+				nameCol.Value(i), ageCol.Value(i), scoreCol.Value(i), emailCol.Value(i))
+		}
+	}
+
+	if err := reader.Err(); err != nil {
+		return fmt.Errorf("reader error: %w", err)
+	}
+
+	fmt.Println("✓ Parameters prevent SQL injection")
+	fmt.Println("✓ Type safety enforced at database level")
 
 	return nil
 }

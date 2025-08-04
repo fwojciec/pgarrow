@@ -30,7 +30,7 @@ type SelectRecordReader struct {
 }
 
 // NewSelectRecordReader creates a streaming record reader using SELECT protocol
-func NewSelectRecordReader(ctx context.Context, conn *pgxpool.Conn, schema *arrow.Schema, query string, alloc memory.Allocator) (*SelectRecordReader, error) {
+func NewSelectRecordReader(ctx context.Context, conn *pgxpool.Conn, schema *arrow.Schema, query string, alloc memory.Allocator, args ...any) (*SelectRecordReader, error) {
 	// Ensure connection uses binary protocol for optimal performance
 	pgxConn := conn.Conn()
 
@@ -41,7 +41,7 @@ func NewSelectRecordReader(ctx context.Context, conn *pgxpool.Conn, schema *arro
 	}
 
 	// Start query execution eagerly to reduce latency on first Next()
-	if err := parser.StartParsing(ctx, query); err != nil {
+	if err := parser.StartParsing(ctx, query, args...); err != nil {
 		parser.Release()
 		return nil, fmt.Errorf("starting SELECT query: %w", err)
 	}
