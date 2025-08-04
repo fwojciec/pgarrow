@@ -121,7 +121,7 @@ func (p *SelectParser) StartParsing(ctx context.Context, query string) error {
 }
 
 // ParseNextBatch parses up to OptimalBatchSize rows into a new batch
-func (p *SelectParser) ParseNextBatch(ctx context.Context, maxBatchBytes int) (arrow.Record, bool, error) {
+func (p *SelectParser) ParseNextBatch(ctx context.Context) (arrow.Record, bool, error) {
 	if p.currentRows == nil {
 		return nil, false, errors.New("parsing not started - call StartParsing first")
 	}

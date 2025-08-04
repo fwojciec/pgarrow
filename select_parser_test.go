@@ -280,7 +280,7 @@ func TestSelectParser_BatchProcessing(t *testing.T) {
 	batchCount := 0
 
 	for {
-		record, done, err := parser.ParseNextBatch(ctx, pgarrow.DefaultBatchSizeBytes)
+		record, done, err := parser.ParseNextBatch(ctx)
 		require.NoError(t, err)
 
 		if record != nil {

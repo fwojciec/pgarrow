@@ -21,10 +21,9 @@ type SelectRecordReader struct {
 	query  string
 
 	// Batch management
-	batchSizeBytes int
-	currentBatch   arrow.Record
-	err            error
-	done           bool
+	currentBatch arrow.Record
+	err          error
+	done         bool
 
 	// Reference counting
 	refCount int64
@@ -32,11 +31,6 @@ type SelectRecordReader struct {
 
 // NewSelectRecordReader creates a streaming record reader using SELECT protocol
 func NewSelectRecordReader(ctx context.Context, conn *pgxpool.Conn, schema *arrow.Schema, query string, alloc memory.Allocator) (*SelectRecordReader, error) {
-	return NewSelectRecordReaderWithBatchSize(ctx, conn, schema, query, alloc, DefaultBatchSizeBytes)
-}
-
-// NewSelectRecordReaderWithBatchSize creates a streaming record reader with custom batch size
-func NewSelectRecordReaderWithBatchSize(ctx context.Context, conn *pgxpool.Conn, schema *arrow.Schema, query string, alloc memory.Allocator, batchSizeBytes int) (*SelectRecordReader, error) {
 	// Ensure connection uses binary protocol for optimal performance
 	pgxConn := conn.Conn()
 
@@ -53,12 +47,11 @@ func NewSelectRecordReaderWithBatchSize(ctx context.Context, conn *pgxpool.Conn,
 	}
 
 	return &SelectRecordReader{
-		ctx:            ctx,
-		conn:           conn,
-		parser:         parser,
-		query:          query,
-		batchSizeBytes: batchSizeBytes,
-		refCount:       1,
+		ctx:      ctx,
+		conn:     conn,
+		parser:   parser,
+		query:    query,
+		refCount: 1,
 	}, nil
 }
 
@@ -80,7 +73,7 @@ func (r *SelectRecordReader) Next() bool {
 	}
 
 	// Parse next batch using optimized SELECT protocol
-	record, done, err := r.parser.ParseNextBatch(r.ctx, r.batchSizeBytes)
+	record, done, err := r.parser.ParseNextBatch(r.ctx)
 	if err != nil {
 		r.err = err
 		return false
