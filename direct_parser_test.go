@@ -132,4 +132,47 @@ func TestDirectCopyParser(t *testing.T) {
 
 		reader.Release() // Release reader
 	})
+
+	// TestDirectCopyParserWithNegativeValues tests edge cases with negative dates/timestamps
+	// that Copilot flagged as potential issues. This verifies our signed/unsigned handling is correct.
+	t.Run("negative_values", func(t *testing.T) {
+		t.Parallel()
+
+		pool, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		// Test dates before 2000-01-01 (negative PostgreSQL date values)
+		// and timestamps before 2000-01-01 (negative PostgreSQL timestamp values)
+		sql := `
+			SELECT 
+				'1999-12-31'::date as past_date,
+				'1999-12-31 23:59:59'::timestamp as past_timestamp,
+				'-1 day'::interval as negative_interval,
+				'-1 month'::interval as negative_month_interval
+		`
+
+		reader, err := pool.QueryArrow(ctx, sql)
+		require.NoError(t, err)
+		defer reader.Release()
+
+		require.True(t, reader.Next())
+		record := reader.Record()
+		assert.Equal(t, int64(1), record.NumRows())
+		assert.Equal(t, int64(4), record.NumCols())
+
+		// Verify we actually got the data without corruption
+		pastDateCol := record.Column(0)
+		pastTimestampCol := record.Column(1)
+		negativeIntervalCol := record.Column(2)
+		negativeMonthIntervalCol := record.Column(3)
+
+		assert.False(t, pastDateCol.IsNull(0), "Past date should not be null")
+		assert.False(t, pastTimestampCol.IsNull(0), "Past timestamp should not be null")
+		assert.False(t, negativeIntervalCol.IsNull(0), "Negative interval should not be null")
+		assert.False(t, negativeMonthIntervalCol.IsNull(0), "Negative month interval should not be null")
+
+		// Should be no more records
+		assert.False(t, reader.Next())
+		require.NoError(t, reader.Err())
+	})
 }
