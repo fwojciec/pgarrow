@@ -26,6 +26,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 		name         string
 		setupSQL     string
 		querySQL     string
+		args         []any
 		expectedRows int64
 		expectedCols int64
 		validateFunc func(t *testing.T, record arrow.Record)
@@ -34,6 +35,7 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name:         "bool_all_values",
 			setupSQL:     `CREATE TABLE test_bool (val bool); INSERT INTO test_bool VALUES (true), (false), (null);`,
 			querySQL:     "SELECT * FROM test_bool ORDER BY val NULLS LAST",
+			args:         nil,
 			expectedRows: 3,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -49,7 +51,8 @@ func TestQueryArrowDataTypes(t *testing.T) {
 		{
 			name:         "int2_edge_cases",
 			setupSQL:     `CREATE TABLE test_int2 (val int2); INSERT INTO test_int2 VALUES (32767), (-32768), (0), (null);`,
-			querySQL:     "SELECT * FROM test_int2 ORDER BY val NULLS LAST",
+			querySQL:     "SELECT * FROM test_int2 WHERE val >= $1 OR val IS NULL ORDER BY val NULLS LAST",
+			args:         []any{int16(-32768)},
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -66,7 +69,8 @@ func TestQueryArrowDataTypes(t *testing.T) {
 		{
 			name:         "int4_edge_cases",
 			setupSQL:     `CREATE TABLE test_int4 (val int4); INSERT INTO test_int4 VALUES (2147483647), (-2147483648), (0), (null);`,
-			querySQL:     "SELECT * FROM test_int4 ORDER BY val NULLS LAST",
+			querySQL:     "SELECT * FROM test_int4 WHERE val >= $1 OR val IS NULL ORDER BY val NULLS LAST",
+			args:         []any{int32(-2147483648)},
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -83,7 +87,8 @@ func TestQueryArrowDataTypes(t *testing.T) {
 		{
 			name:         "int8_edge_cases",
 			setupSQL:     `CREATE TABLE test_int8 (val int8); INSERT INTO test_int8 VALUES (9223372036854775807), (-9223372036854775808), (0), (null);`,
-			querySQL:     "SELECT * FROM test_int8 ORDER BY val NULLS LAST",
+			querySQL:     "SELECT * FROM test_int8 WHERE val <> $1 OR val IS NULL ORDER BY val NULLS LAST",
+			args:         []any{int64(999)},
 			expectedRows: 4,
 			expectedCols: 1,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -215,7 +220,8 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			name: "mixed_types_literal_filter",
 			setupSQL: `CREATE TABLE test_mixed (id int4, name text, score float8, active bool); 
 					   INSERT INTO test_mixed VALUES (1, 'Alice', 95.5, true), (2, 'Bob', 87.2, false), (3, 'Charlie', 92.1, true);`,
-			querySQL:     "SELECT * FROM test_mixed WHERE score > 90.0 AND active = true ORDER BY score DESC",
+			querySQL:     "SELECT * FROM test_mixed WHERE score > $1 AND active = $2 ORDER BY score DESC",
+			args:         []any{90.0, true},
 			expectedRows: 2,
 			expectedCols: 4,
 			validateFunc: func(t *testing.T, record arrow.Record) {
@@ -912,9 +918,9 @@ func TestQueryArrowDataTypes(t *testing.T) {
 			testPool, testCleanup := createIsolatedTestEnv(t, tt.setupSQL)
 			defer testCleanup()
 
-			// Execute query
+			// Execute query with parameters
 			var reader array.RecordReader
-			reader, err := testPool.QueryArrow(ctx, tt.querySQL)
+			reader, err := testPool.QueryArrow(ctx, tt.querySQL, tt.args...)
 
 			require.NoError(t, err, "Query failed for test %s", tt.name)
 			require.NotNil(t, reader, "Reader should not be nil for test %s", tt.name)

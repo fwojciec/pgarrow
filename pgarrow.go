@@ -123,6 +123,9 @@ func NewPool(ctx context.Context, connString string, opts ...Option) (*Pool, err
 // This is the primary method for converting PostgreSQL data to Arrow format using
 // the SELECT protocol with binary format for 2x performance improvement over COPY BINARY.
 //
+// The method supports parameterized queries using PostgreSQL placeholders ($1, $2, etc.).
+// Parameters are passed as variadic arguments and bound safely to prevent SQL injection.
+//
 // DESIGN: This method uses SELECT protocol with QueryExecModeCacheDescribe for optimal
 // binary protocol handling. It achieves 2.44M rows/sec average performance through:
 // - Direct RawValues() access for zero-copy binary parsing
@@ -143,7 +146,17 @@ func NewPool(ctx context.Context, connString string, opts ...Option) (*Pool, err
 //
 // Example usage:
 //
+//	// Without parameters
 //	reader, err := pool.QueryArrow(ctx, "SELECT id, name FROM users")
+//
+//	// With parameters
+//	reader, err := pool.QueryArrow(ctx, "SELECT id, name FROM users WHERE active = $1", true)
+//
+//	// Multiple parameters
+//	reader, err := pool.QueryArrow(ctx,
+//	    "SELECT * FROM users WHERE age > $1 AND city = $2",
+//	    21, "New York")
+//
 //	if err != nil {
 //	    return err
 //	}
@@ -159,7 +172,7 @@ func NewPool(ctx context.Context, connString string, opts ...Option) (*Pool, err
 //	if err := reader.Err(); err != nil {
 //	    return err
 //	}
-func (p *Pool) QueryArrow(ctx context.Context, sql string) (array.RecordReader, error) {
+func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.RecordReader, error) {
 
 	conn, err := p.pool.Acquire(ctx)
 	if err != nil {
@@ -170,7 +183,7 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string) (array.RecordReader, 
 	}
 
 	// Get metadata and create compiled schema
-	schema, _, err := p.getQueryMetadata(ctx, conn, sql)
+	schema, _, err := p.getQueryMetadata(ctx, conn, sql, args...)
 	if err != nil {
 		conn.Release()
 		return nil, &QueryError{
@@ -181,7 +194,7 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string) (array.RecordReader, 
 	}
 
 	// Execute SELECT query with optimized binary protocol
-	reader, err := p.executeSelectWithBinaryProtocol(ctx, conn, sql, schema)
+	reader, err := p.executeSelectWithBinaryProtocol(ctx, conn, sql, schema, args...)
 	if err != nil {
 		conn.Release()
 		return nil, &QueryError{
@@ -195,7 +208,7 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string) (array.RecordReader, 
 }
 
 // getQueryMetadata uses PREPARE to extract column metadata without executing the query
-func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql string) (*arrow.Schema, []uint32, error) {
+func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql string, _ ...any) (*arrow.Schema, []uint32, error) {
 	// Use PREPARE to get metadata without executing the full query - much more efficient!
 	// Generate a unique statement name to avoid collisions in concurrent usage
 	stmtName := fmt.Sprintf("pgarrow_meta_%p", conn)
@@ -239,9 +252,9 @@ func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql str
 
 // executeSelectWithBinaryProtocol runs SELECT query with optimized binary protocol
 // This uses the high-performance SelectRecordReader that achieves 2x performance over COPY
-func (p *Pool) executeSelectWithBinaryProtocol(ctx context.Context, conn *pgxpool.Conn, sql string, schema *arrow.Schema) (array.RecordReader, error) {
+func (p *Pool) executeSelectWithBinaryProtocol(ctx context.Context, conn *pgxpool.Conn, sql string, schema *arrow.Schema, args ...any) (array.RecordReader, error) {
 	// Create streaming reader using SELECT protocol with binary format
-	reader, err := NewSelectRecordReader(ctx, conn, schema, sql, p.allocator)
+	reader, err := NewSelectRecordReader(ctx, conn, schema, sql, p.allocator, args...)
 	if err != nil {
 		return nil, fmt.Errorf("creating SELECT reader: %w", err)
 	}

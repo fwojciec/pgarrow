@@ -9,8 +9,10 @@
 Pure Go library that streams PostgreSQL query results directly to Arrow format using binary protocol. Designed for analytical workloads, data pipelines, and Arrow ecosystem integration.
 
 ```go
-// One pool, many queries - streaming results
-reader, err := pool.QueryArrow(ctx, "SELECT * FROM large_table")
+// One pool, many queries - with safe parameterization
+reader, err := pool.QueryArrow(ctx, 
+    "SELECT * FROM large_table WHERE created_at > $1",
+    time.Now().AddDate(0, -1, 0)) // Last month
 defer reader.Release()
 
 for reader.Next() {
@@ -27,6 +29,7 @@ for reader.Next() {
 | ⚡ **Just-in-Time Metadata** | Schema discovered at query time, not at connection time |
 | 📊 **Streaming** | Constant memory usage, handles any result size |
 | 🎯 **Arrow Native** | Drop-in `array.RecordReader`, ecosystem ready |
+| 🔒 **Safe Queries** | Full parameterization support prevents SQL injection |
 
 ## Quick Start
 
@@ -38,7 +41,11 @@ go get github.com/fwojciec/pgarrow
 ### 30-Second Example
 ```go
 pool, _ := pgarrow.NewPool(ctx, "postgres://...")
-reader, _ := pool.QueryArrow(ctx, "SELECT id, name FROM users")
+
+// Safe parameterized queries - no SQL injection
+reader, _ := pool.QueryArrow(ctx, 
+    "SELECT id, name FROM users WHERE active = $1 AND age > $2",
+    true, 18)
 defer reader.Release()
 
 for reader.Next() {

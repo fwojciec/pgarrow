@@ -77,13 +77,13 @@ func NewSelectParser(conn *pgx.Conn, schema *arrow.Schema, alloc memory.Allocato
 
 // ParseAll executes the query and parses all results into a single Arrow record.
 // For large datasets, consider using StartParsing and ParseNextBatch for streaming.
-func (p *SelectParser) ParseAll(ctx context.Context, query string) (arrow.Record, error) {
+func (p *SelectParser) ParseAll(ctx context.Context, query string, args ...any) (arrow.Record, error) {
 	// Reset builders for new query
 	p.resetBuilders()
 	p.rowsProcessed = 0
 
 	// Execute query with binary protocol
-	rows, err := p.conn.Query(ctx, query)
+	rows, err := p.conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("executing query: %w", err)
 	}
@@ -105,13 +105,13 @@ func (p *SelectParser) ParseAll(ctx context.Context, query string) (arrow.Record
 }
 
 // StartParsing initiates query execution for streaming results
-func (p *SelectParser) StartParsing(ctx context.Context, query string) error {
+func (p *SelectParser) StartParsing(ctx context.Context, query string, args ...any) error {
 	if p.currentRows != nil {
 		return errors.New("parsing already in progress")
 	}
 
 	// Execute query with binary protocol
-	rows, err := p.conn.Query(ctx, query)
+	rows, err := p.conn.Query(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("executing query: %w", err)
 	}
