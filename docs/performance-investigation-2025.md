@@ -1,4 +1,4 @@
-# PostgreSQL to Arrow Performance Investigation - January 2025
+# PostgreSQL to Arrow Performance Investigation - August 2025
 
 ## Executive Summary
 
