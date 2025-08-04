@@ -42,12 +42,12 @@ for {
 
 ### Prerequisites
 
-Set the database connection URL via environment variable:
+The integration tests require a database connection. Set the connection URL via environment variable:
 ```bash
-export PGARROW_TEST_DB_URL="postgres://bookscanner:bookscanner@localhost:5432/bookscanner?sslmode=disable"
+export PGARROW_TEST_DB_URL="postgres://username:password@localhost:5432/dbname?sslmode=disable"
 ```
 
-If not set, tests will use the default connection string above and log a warning.
+**Note**: Tests will be skipped if this environment variable is not set.
 
 ### Running Tests
 

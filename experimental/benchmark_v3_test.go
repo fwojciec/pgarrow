@@ -24,8 +24,7 @@ func BenchmarkDirectV3Performance(b *testing.B) {
 	// Database connection from environment variable
 	dbURL := os.Getenv("PGARROW_TEST_DB_URL")
 	if dbURL == "" {
-		dbURL = "postgres://bookscanner:bookscanner@localhost:5432/bookscanner?sslmode=disable"
-		b.Logf("PGARROW_TEST_DB_URL not set, using default: %s", dbURL)
+		b.Skip("PGARROW_TEST_DB_URL environment variable not set")
 	}
 
 	conn, err := pgx.Connect(ctx, dbURL)
@@ -69,8 +68,7 @@ func TestDirectV3PerformanceMetrics(t *testing.T) {
 	// Database connection from environment variable
 	dbURL := os.Getenv("PGARROW_TEST_DB_URL")
 	if dbURL == "" {
-		dbURL = "postgres://bookscanner:bookscanner@localhost:5432/bookscanner?sslmode=disable"
-		t.Logf("PGARROW_TEST_DB_URL not set, using default: %s", dbURL)
+		t.Skip("PGARROW_TEST_DB_URL environment variable not set")
 	}
 
 	conn, err := pgx.Connect(ctx, dbURL)
