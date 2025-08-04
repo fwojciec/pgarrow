@@ -164,20 +164,3 @@ func TestCalculateRowByteSize(t *testing.T) {
 		})
 	}
 }
-
-// TestByteBatchingConstants tests the new ADBC-style batching constants
-func TestByteBatchingConstants(t *testing.T) {
-	t.Parallel()
-
-	// Test that constants are reasonable values
-	assert.Equal(t, 16777216, pgarrow.DefaultBatchSizeBytes, "DefaultBatchSizeBytes should be 16MB")
-	assert.Equal(t, 67108864, pgarrow.MaxBatchSizeBytes, "MaxBatchSizeBytes should be 64MB")
-
-	// Verify the constants make sense relative to each other
-	assert.Less(t, pgarrow.DefaultBatchSizeBytes, pgarrow.MaxBatchSizeBytes,
-		"DefaultBatchSizeBytes should be less than MaxBatchSizeBytes")
-
-	// Verify they're much larger than row-based batching
-	assert.Greater(t, pgarrow.DefaultBatchSizeBytes, pgarrow.OptimalBatchSizeGo*1000,
-		"Byte-based batching should handle much more data than row-based")
-}

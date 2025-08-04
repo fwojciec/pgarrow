@@ -31,6 +31,11 @@ type DirectRecordReader struct {
 
 // NewDirectRecordReader creates a streaming record reader using direct COPY parsing
 func NewDirectRecordReader(ctx context.Context, conn *pgxpool.Conn, schema *arrow.Schema, copySQL string, alloc memory.Allocator) (*DirectRecordReader, error) {
+	return NewDirectRecordReaderWithBatchSize(ctx, conn, schema, copySQL, alloc, DefaultBatchSizeBytes)
+}
+
+// NewDirectRecordReaderWithBatchSize creates a streaming record reader with custom batch size
+func NewDirectRecordReaderWithBatchSize(ctx context.Context, conn *pgxpool.Conn, schema *arrow.Schema, copySQL string, alloc memory.Allocator, batchSizeBytes int) (*DirectRecordReader, error) {
 	parser, err := NewDirectCopyParser(conn.Conn().PgConn(), schema, alloc)
 	if err != nil {
 		return nil, err
@@ -47,7 +52,7 @@ func NewDirectRecordReader(ctx context.Context, conn *pgxpool.Conn, schema *arro
 		conn:           conn,
 		parser:         parser,
 		copySQL:        copySQL,
-		batchSizeBytes: DefaultBatchSizeBytes,
+		batchSizeBytes: batchSizeBytes,
 		refCount:       1,
 	}, nil
 }

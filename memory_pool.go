@@ -12,7 +12,7 @@ const (
 	CacheLineSizeBytes = 64   // x86_64 cache line size
 
 	// ADBC-style byte-based batching constants (preferred approach)
-	DefaultBatchSizeBytes = 16777216 // 16MB - ADBC's kDefaultBatchSizeHintBytes
+	DefaultBatchSizeBytes = 67108864 // 64MB - Optimal performance for modern systems
 	MaxBatchSizeBytes     = 67108864 // 64MB - Upper limit for memory safety
 
 	// Legacy row-based batch sizes (deprecated, use byte-based batching)
