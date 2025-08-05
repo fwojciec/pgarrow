@@ -166,6 +166,35 @@ Simple query benchmark results (single row):
 
 **Note**: Single-row queries show pgx advantage due to PGArrow's batch-oriented design. PGArrow excels at larger result sets where columnar format benefits emerge.
 
+### Metadata Discovery Performance
+
+PGArrow uses "just-in-time metadata discovery" - schema information is discovered at query time using PostgreSQL's PREPARE statement, not at connection time. Here's the measured overhead:
+
+| Metric | Measurement | Details |
+|--------|-------------|---------|
+| **Base metadata discovery overhead** | ~178 μs per query | Using PREPARE + field parsing |
+| **Column count scaling** | Minimal impact | 1-50 columns show negligible difference |
+| **Repeated query overhead** | Consistent ~178 μs | No caching benefit - same overhead each time |
+| **Percentage of query time** | ~10% for small queries | 178 μs of 1.7 ms total for 1000-row query |
+
+**Key Findings**:
+- Metadata discovery adds a consistent **~178 microseconds** per query regardless of column count (1-50 tested)
+- This overhead is **constant** - running the same query repeatedly incurs the same metadata discovery cost
+- For queries returning 1000 rows, metadata discovery represents about **10%** of total query time
+- The overhead scales well - even with 50 columns, discovery time remains around 180 μs
+
+**Trade-offs**:
+- **Benefit**: Zero connection overhead - instant connections without preloading schemas
+- **Benefit**: Works efficiently with databases containing thousands of tables
+- **Cost**: ~178 μs per-query overhead that cannot be amortized
+- **Cost**: For very small queries (< 100 rows), this overhead may be proportionally significant
+
+This design choice favors systems that:
+- Need instant connections without schema preloading delays
+- Work with large databases where preloading all metadata would be expensive
+- Execute queries that return sufficient data to amortize the per-query overhead
+- Value connection pool efficiency over per-query micro-optimization
+
 ## Benchmark Organization
 
 Our consolidated benchmark suite (`pgarrow_bench_test.go`) includes:
@@ -176,6 +205,10 @@ Our consolidated benchmark suite (`pgarrow_bench_test.go`) includes:
 4. **BenchmarkTypeConversion** - Type-specific conversion performance
 5. **BenchmarkMemoryAllocation** - Memory usage patterns at different scales
 6. **BenchmarkConnectionSetup** - Initialization overhead comparison
+7. **BenchmarkMetadataDiscovery** - Measures metadata discovery overhead per query
+8. **BenchmarkMetadataByColumnCount** - Tests metadata discovery scaling with column count
+9. **BenchmarkRepeatedSameQuery** - Demonstrates consistent overhead for repeated queries
+10. **BenchmarkQueryWithMetadataComparison** - Isolates metadata discovery impact
 
 ## Performance Optimization Guidelines
 
