@@ -29,6 +29,7 @@ const (
 	TypeOIDTimestamp   = 1114
 	TypeOIDTimestamptz = 1184
 	TypeOIDInterval    = 1186
+	TypeOIDNumeric     = 1700
 
 	// PostgreSQL epoch adjustment: days from 1970-01-01 to 2000-01-01
 	PostgresDateEpochDays = 10957
@@ -91,6 +92,8 @@ func oidToArrowType(oid uint32) (arrow.DataType, error) {
 		return &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}, nil
 	case TypeOIDInterval:
 		return arrow.FixedWidthTypes.MonthDayNanoInterval, nil
+	case TypeOIDNumeric:
+		return arrow.BinaryTypes.String, nil
 	default:
 		return nil, fmt.Errorf("unsupported PostgreSQL type OID: %d", oid)
 	}

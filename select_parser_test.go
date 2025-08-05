@@ -174,7 +174,7 @@ func TestSelectParser_BasicTypes(t *testing.T) {
 			require.NoError(t, err)
 			defer subConn.Release()
 
-			parser, err := pgarrow.NewSelectParser(subConn.Conn(), tc.schema, alloc)
+			parser, err := pgarrow.NewSelectParser(subConn.Conn(), tc.schema, alloc, nil)
 			require.NoError(t, err)
 			defer parser.Release()
 
@@ -208,7 +208,7 @@ func TestSelectParser_MultipleRows(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Release()
 
-	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc)
+	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc, nil)
 	require.NoError(t, err)
 	defer parser.Release()
 
@@ -261,7 +261,7 @@ func TestSelectParser_BatchProcessing(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Release()
 
-	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc)
+	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc, nil)
 	require.NoError(t, err)
 	defer parser.Release()
 
@@ -328,7 +328,7 @@ func TestSelectParser_QueryExecMode(t *testing.T) {
 		{Name: "num", Type: arrow.PrimitiveTypes.Int64},
 	}, nil)
 
-	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc)
+	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc, nil)
 	require.NoError(t, err)
 	defer parser.Release()
 
@@ -363,7 +363,7 @@ func TestSelectParser_BuilderReuse(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Release()
 
-	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc)
+	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc, nil)
 	require.NoError(t, err)
 	defer parser.Release()
 
@@ -400,7 +400,7 @@ func TestSelectParser_ErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Release()
 
-	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc)
+	parser, err := pgarrow.NewSelectParser(conn.Conn(), schema, alloc, nil)
 	require.NoError(t, err)
 	defer parser.Release()
 
@@ -432,7 +432,7 @@ func TestStreamingMode(t *testing.T) {
 		{Name: "n", Type: arrow.PrimitiveTypes.Int32},
 	}, nil)
 
-	parser, err := pgarrow.NewSelectParser(conn, schema, memory.DefaultAllocator)
+	parser, err := pgarrow.NewSelectParser(conn, schema, memory.DefaultAllocator, nil)
 	require.NoError(t, err)
 	defer parser.Release()
 
@@ -488,7 +488,7 @@ func TestColumnMismatch(t *testing.T) {
 		{Name: "b", Type: arrow.PrimitiveTypes.Int32},
 	}, nil)
 
-	parser, err := pgarrow.NewSelectParser(conn, schema, memory.DefaultAllocator)
+	parser, err := pgarrow.NewSelectParser(conn, schema, memory.DefaultAllocator, nil)
 	require.NoError(t, err)
 	defer parser.Release()
 
@@ -512,7 +512,7 @@ func TestSelectParserCoverage(t *testing.T) {
 			{Name: "id", Type: arrow.PrimitiveTypes.Int32},
 		}, nil)
 
-		parser, err := pgarrow.NewSelectParser(nil, schema, alloc)
+		parser, err := pgarrow.NewSelectParser(nil, schema, alloc, nil)
 		require.NoError(t, err)
 		defer parser.Release()
 
@@ -537,7 +537,7 @@ func TestSelectParserCoverage(t *testing.T) {
 				{Name: "num", Type: arrow.PrimitiveTypes.Int32},
 			}, nil)
 
-			parser, err := pgarrow.NewSelectParser(conn, schema, memory.DefaultAllocator)
+			parser, err := pgarrow.NewSelectParser(conn, schema, memory.DefaultAllocator, nil)
 			require.NoError(t, err)
 			defer parser.Release()
 
@@ -558,7 +558,7 @@ func TestSelectParserCoverage(t *testing.T) {
 				{Name: "num", Type: arrow.PrimitiveTypes.Int32},
 			}, nil)
 
-			parser, err := pgarrow.NewSelectParser(nil, schema, memory.DefaultAllocator)
+			parser, err := pgarrow.NewSelectParser(nil, schema, memory.DefaultAllocator, nil)
 			require.NoError(t, err)
 			defer parser.Release()
 
@@ -605,7 +605,7 @@ func TestTimestampUnits(t *testing.T) {
 			}, nil)
 
 			// Create parser
-			parser, err := pgarrow.NewSelectParser(conn, schema, memory.DefaultAllocator)
+			parser, err := pgarrow.NewSelectParser(conn, schema, memory.DefaultAllocator, nil)
 			require.NoError(t, err)
 			defer parser.Release()
 

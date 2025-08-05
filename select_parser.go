@@ -23,10 +23,11 @@ const (
 // using the pgx binary protocol for optimal performance.
 // This implementation achieves 2x performance improvement over COPY BINARY protocol.
 type SelectParser struct {
-	conn     *pgx.Conn
-	alloc    memory.Allocator
-	schema   *arrow.Schema
-	builders []array.Builder
+	conn      *pgx.Conn
+	alloc     memory.Allocator
+	schema    *arrow.Schema
+	builders  []array.Builder
+	fieldOIDs []uint32 // PostgreSQL type OIDs for special handling
 
 	// Batch management
 	batchRows    int64
@@ -35,6 +36,11 @@ type SelectParser struct {
 	// Lifetime tracking
 	rowsProcessed int64
 	currentRows   pgx.Rows
+
+	// Reusable buffers for numeric parsing (avoids allocations)
+	numericDigits [256]int16 // PostgreSQL numeric can have up to 131072 digits total, but practically much less
+	numericBuffer [1024]byte // Buffer for building numeric strings
+	digitConvBuf  [5]byte    // Buffer for digit conversion (max 4 digits + null)
 }
 
 // NewSelectParser creates a parser that uses SELECT protocol with binary format.
@@ -42,12 +48,13 @@ type SelectParser struct {
 // - QueryExecModeCacheDescribe for 25% performance boost
 // - RawValues() for zero-copy binary access (37% faster than Scan)
 // - Builder reuse pattern with optimal batch size
-func NewSelectParser(conn *pgx.Conn, schema *arrow.Schema, alloc memory.Allocator) (*SelectParser, error) {
+func NewSelectParser(conn *pgx.Conn, schema *arrow.Schema, alloc memory.Allocator, fieldOIDs []uint32) (*SelectParser, error) {
 	p := &SelectParser{
 		conn:         conn,
 		alloc:        alloc,
 		schema:       schema,
 		builders:     make([]array.Builder, len(schema.Fields())),
+		fieldOIDs:    fieldOIDs,
 		maxBatchRows: OptimalBatchSize,
 	}
 
@@ -207,6 +214,11 @@ func (p *SelectParser) parseRow(rows pgx.Rows) error {
 func (p *SelectParser) parseBinaryValue(fieldIndex int, data []byte) error {
 	builder := p.builders[fieldIndex]
 	fieldType := p.schema.Field(fieldIndex).Type
+
+	// Special handling for numeric type which needs binary to string conversion
+	if p.fieldOIDs != nil && fieldIndex < len(p.fieldOIDs) && p.fieldOIDs[fieldIndex] == TypeOIDNumeric {
+		return p.parseNumeric(data, builder)
+	}
 
 	// Use type-specific optimized parsing
 	switch fieldType.ID() {
@@ -434,6 +446,179 @@ func (p *SelectParser) parseInterval(data []byte, builder array.Builder) error {
 	}
 	b.Append(interval)
 	return nil
+}
+
+// numericConstants holds special values for PostgreSQL numeric type
+const (
+	numericPos  = 0x0000
+	numericNeg  = 0x4000
+	numericNaN  = 0xC000
+	numericPInf = 0xD000
+	numericNInf = 0xF000
+)
+
+// parseNumeric handles PostgreSQL NUMERIC type conversion to string
+func (p *SelectParser) parseNumeric(data []byte, builder array.Builder) error {
+	stringBuilder, ok := builder.(*array.StringBuilder)
+	if !ok {
+		return fmt.Errorf("expected StringBuilder for numeric type, got %T", builder)
+	}
+
+	if len(data) < 8 {
+		return fmt.Errorf("invalid numeric data length: %d", len(data))
+	}
+
+	// Read header
+	ndigits := int16(binary.BigEndian.Uint16(data[0:2]))
+	weight := int16(binary.BigEndian.Uint16(data[2:4]))
+	sign := binary.BigEndian.Uint16(data[4:6])
+	dscale := binary.BigEndian.Uint16(data[6:8])
+
+	// Handle special values
+	switch sign {
+	case numericNaN:
+		stringBuilder.Append("NaN")
+		return nil
+	case numericPInf:
+		stringBuilder.Append("Infinity")
+		return nil
+	case numericNInf:
+		stringBuilder.Append("-Infinity")
+		return nil
+	}
+
+	// Validate data length
+	expectedLen := 8 + int(ndigits)*2
+	if len(data) < expectedLen {
+		return fmt.Errorf("invalid numeric data: expected %d bytes, got %d", expectedLen, len(data))
+	}
+
+	// Check buffer capacity
+	if ndigits > int16(len(p.numericDigits)) {
+		return fmt.Errorf("numeric has too many digits: %d (max supported: %d)", ndigits, len(p.numericDigits))
+	}
+
+	// Read digits into pre-allocated buffer (zero allocation)
+	for i := int16(0); i < ndigits; i++ {
+		p.numericDigits[i] = int16(binary.BigEndian.Uint16(data[8+i*2 : 10+i*2]))
+	}
+
+	// Build string representation using pre-allocated buffer
+	n := p.formatNumericToBuffer(p.numericDigits[:ndigits], ndigits, weight, sign, dscale)
+	// Unfortunately we still need to allocate a string for Arrow's StringBuilder
+	stringBuilder.Append(string(p.numericBuffer[:n]))
+	return nil
+}
+
+// formatNumericToBuffer formats numeric directly into buffer, returns length
+func (p *SelectParser) formatNumericToBuffer(digits []int16, ndigits, weight int16, sign uint16, dscale uint16) int {
+	pos := 0
+
+	// Add negative sign if needed
+	if sign == numericNeg {
+		p.numericBuffer[pos] = '-'
+		pos++
+	}
+
+	// Handle digits before decimal point
+	if weight < 0 {
+		p.numericBuffer[pos] = '0'
+		pos++
+	} else {
+		for d := 0; d <= int(weight); d++ {
+			var dig int16
+			if d < int(ndigits) {
+				dig = digits[d]
+			}
+
+			if d == 0 {
+				// First digit - no leading zeros
+				n := p.formatInt16(dig, false)
+				copy(p.numericBuffer[pos:], p.digitConvBuf[:n])
+				pos += n
+			} else {
+				// Subsequent digits - pad with zeros
+				n := p.formatInt16(dig, true)
+				copy(p.numericBuffer[pos:], p.digitConvBuf[:n])
+				pos += n
+			}
+		}
+	}
+
+	// Add decimal point and digits after if needed
+	if dscale > 0 {
+		p.numericBuffer[pos] = '.'
+		pos++
+
+		startDigit := int(weight) + 1
+		totalDecimalDigits := 0
+
+		for d := startDigit; totalDecimalDigits < int(dscale); d++ {
+			var dig int16
+			if d >= 0 && d < int(ndigits) {
+				dig = digits[d]
+			}
+
+			// Format with padding
+			_ = p.formatInt16(dig, true)
+			for i := 0; i < 4 && totalDecimalDigits < int(dscale); i++ {
+				p.numericBuffer[pos] = p.digitConvBuf[i]
+				pos++
+				totalDecimalDigits++
+			}
+		}
+	}
+
+	return pos
+}
+
+// formatInt16 formats an int16 to digitConvBuf, returns length
+func (p *SelectParser) formatInt16(v int16, pad bool) int {
+	if pad {
+		// Pad with zeros to 4 digits
+		p.digitConvBuf[0] = byte('0' + v/1000)
+		p.digitConvBuf[1] = byte('0' + (v/100)%10)
+		p.digitConvBuf[2] = byte('0' + (v/10)%10)
+		p.digitConvBuf[3] = byte('0' + v%10)
+		return 4
+	}
+
+	// No padding - variable length
+	if v == 0 {
+		p.digitConvBuf[0] = '0'
+		return 1
+	}
+
+	n := 0
+	if v >= 1000 {
+		p.digitConvBuf[n] = byte('0' + v/1000)
+		n++
+		v %= 1000
+		p.digitConvBuf[n] = byte('0' + v/100)
+		n++
+		v %= 100
+		p.digitConvBuf[n] = byte('0' + v/10)
+		n++
+		p.digitConvBuf[n] = byte('0' + v%10)
+		n++
+	} else if v >= 100 {
+		p.digitConvBuf[n] = byte('0' + v/100)
+		n++
+		v %= 100
+		p.digitConvBuf[n] = byte('0' + v/10)
+		n++
+		p.digitConvBuf[n] = byte('0' + v%10)
+		n++
+	} else if v >= 10 {
+		p.digitConvBuf[n] = byte('0' + v/10)
+		n++
+		p.digitConvBuf[n] = byte('0' + v%10)
+		n++
+	} else {
+		p.digitConvBuf[n] = byte('0' + v)
+		n++
+	}
+	return n
 }
 
 // resetBuilders clears all builders for a new batch

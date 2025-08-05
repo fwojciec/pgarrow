@@ -343,6 +343,62 @@ func TestDataTypes(t *testing.T) {
 				}
 			},
 		},
+		// Numeric type tests
+		{
+			name:  "numeric_basic_values",
+			query: "SELECT 123.456::numeric, 0::numeric, -999.99::numeric, NULL::numeric",
+			validate: func(t *testing.T, records []arrow.Record) {
+				require.Len(t, records, 1)
+				rec := records[0]
+				require.Equal(t, int64(1), rec.NumRows())
+				require.Equal(t, int64(4), rec.NumCols())
+
+				require.Equal(t, "123.456", rec.Column(0).(*array.String).Value(0))
+				require.Equal(t, "0", rec.Column(1).(*array.String).Value(0))
+				require.Equal(t, "-999.99", rec.Column(2).(*array.String).Value(0))
+				require.True(t, rec.Column(3).IsNull(0))
+			},
+		},
+		{
+			name:  "numeric_special_values",
+			query: "SELECT 'NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric",
+			validate: func(t *testing.T, records []arrow.Record) {
+				require.Len(t, records, 1)
+				rec := records[0]
+				require.Equal(t, int64(1), rec.NumRows())
+				require.Equal(t, int64(3), rec.NumCols())
+
+				require.Equal(t, "NaN", rec.Column(0).(*array.String).Value(0))
+				require.Equal(t, "Infinity", rec.Column(1).(*array.String).Value(0))
+				require.Equal(t, "-Infinity", rec.Column(2).(*array.String).Value(0))
+			},
+		},
+		{
+			name:  "numeric_large_precision",
+			query: "SELECT 1234567890123456789012345.123456789::numeric",
+			validate: func(t *testing.T, records []arrow.Record) {
+				require.Len(t, records, 1)
+				rec := records[0]
+				require.Equal(t, int64(1), rec.NumRows())
+				require.Equal(t, int64(1), rec.NumCols())
+
+				require.Equal(t, "1234567890123456789012345.123456789", rec.Column(0).(*array.String).Value(0))
+			},
+		},
+		{
+			name:  "numeric_with_scale",
+			query: "SELECT 123.456::numeric(10,3), 999999.999::numeric(10,3)",
+			validate: func(t *testing.T, records []arrow.Record) {
+				require.Len(t, records, 1)
+				rec := records[0]
+				require.Equal(t, int64(1), rec.NumRows())
+				require.Equal(t, int64(2), rec.NumCols())
+
+				require.Equal(t, "123.456", rec.Column(0).(*array.String).Value(0))
+				require.Equal(t, "999999.999", rec.Column(1).(*array.String).Value(0))
+			},
+		},
+
 		// Additional timestamp tests (microsecond is default, tested above)
 		{
 			name:  "timestamp_preserves_precision",

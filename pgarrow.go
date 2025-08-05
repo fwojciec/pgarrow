@@ -182,7 +182,7 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.R
 	}
 
 	// Get metadata and create compiled schema
-	schema, _, err := p.GetQueryMetadata(ctx, conn, sql, args...)
+	schema, fieldOIDs, err := p.GetQueryMetadata(ctx, conn, sql, args...)
 	if err != nil {
 		conn.Release()
 		return nil, &QueryError{
@@ -193,7 +193,7 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.R
 	}
 
 	// Execute SELECT query with optimized binary protocol
-	reader, err := p.executeSelectWithBinaryProtocol(ctx, conn, sql, schema, args...)
+	reader, err := p.executeSelectWithBinaryProtocol(ctx, conn, sql, schema, fieldOIDs, args...)
 	if err != nil {
 		conn.Release()
 		return nil, &QueryError{
@@ -252,9 +252,9 @@ func (p *Pool) GetQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql str
 
 // executeSelectWithBinaryProtocol runs SELECT query with optimized binary protocol
 // This uses the high-performance SelectRecordReader that achieves 2x performance over COPY
-func (p *Pool) executeSelectWithBinaryProtocol(ctx context.Context, conn *pgxpool.Conn, sql string, schema *arrow.Schema, args ...any) (array.RecordReader, error) {
+func (p *Pool) executeSelectWithBinaryProtocol(ctx context.Context, conn *pgxpool.Conn, sql string, schema *arrow.Schema, fieldOIDs []uint32, args ...any) (array.RecordReader, error) {
 	// Create streaming reader using SELECT protocol with binary format
-	reader, err := NewSelectRecordReader(ctx, conn, schema, sql, p.allocator, args...)
+	reader, err := NewSelectRecordReader(ctx, conn, schema, fieldOIDs, sql, p.allocator, args...)
 	if err != nil {
 		return nil, fmt.Errorf("creating SELECT reader: %w", err)
 	}
