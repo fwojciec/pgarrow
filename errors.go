@@ -4,10 +4,9 @@ import "fmt"
 
 // QueryError provides detailed context about query execution failures
 type QueryError struct {
-	SQL           string // The SQL query that failed
-	ConnectionStr string // Connection string (sensitive parts masked)
-	Operation     string // Which operation failed (e.g., "metadata_discovery", "copy_execution")
-	Err           error  // The underlying error
+	SQL       string // The SQL query that failed
+	Operation string // Which operation failed (e.g., "metadata_discovery", "copy_execution")
+	Err       error  // The underlying error
 }
 
 func (e *QueryError) Error() string {
@@ -24,8 +23,7 @@ func (e *QueryError) Unwrap() error {
 
 // ConnectionError provides context about connection acquisition failures
 type ConnectionError struct {
-	ConnectionStr string // Connection string (sensitive parts masked)
-	Err           error  // The underlying error
+	Err error // The underlying error
 }
 
 func (e *ConnectionError) Error() string {
@@ -48,11 +46,4 @@ func (e *SchemaError) Error() string {
 
 func (e *SchemaError) Unwrap() error {
 	return e.Err
-}
-
-// maskConnectionString removes sensitive information from connection strings for error reporting
-func maskConnectionString(connStr string) string {
-	// For now, just return a generic message to avoid leaking credentials
-	// In a production implementation, you might want to parse and selectively mask parts
-	return "[connection details masked]"
 }
