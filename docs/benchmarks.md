@@ -115,18 +115,6 @@ Our approach to parsing PostgreSQL's binary wire format:
 - Text allocation is inherent to Go's string immutability
 - Our safe approach matches unsafe performance
 
-### Zero-Allocation Data Access
-
-Once data is in Arrow format, accessing values requires **zero heap allocations**:
-
-| Type Access | Time/op | Memory/op | Allocs/op |
-|-------------|---------|-----------|-----------|
-| int64 | 1,039 ns | 0 B | **0** |
-| float64 | 1,054 ns | 0 B | **0** |
-| bool | 1,306 ns | 0 B | **0** |
-| string | 1,572 ns | 0 B | **0** |
-
-**Key Insight**: Arrow's columnar format enables zero-copy access patterns, critical for analytical workloads.
 
 ### Type Conversion Performance
 
@@ -183,12 +171,11 @@ Simple query benchmark results (single row):
 Our consolidated benchmark suite (`pgarrow_bench_test.go`) includes:
 
 1. **BenchmarkThroughput** - Measures rows/second processing capability (validates ~2M rows/sec claim)
-2. **BenchmarkZeroAllocationParsing** - Proves zero-allocation access to Arrow data
-3. **BenchmarkPostgresBinaryParsing** - Validates our PostgreSQL binary format parsing approach
-4. **BenchmarkQueryComparison** - Head-to-head PGArrow vs pgx comparisons
-5. **BenchmarkTypeConversion** - Type-specific conversion performance
-6. **BenchmarkMemoryAllocation** - Memory usage patterns at different scales
-7. **BenchmarkConnectionSetup** - Initialization overhead comparison
+2. **BenchmarkPostgresBinaryParsing** - Validates our PostgreSQL binary format parsing approach
+3. **BenchmarkQueryComparison** - Head-to-head PGArrow vs pgx comparisons
+4. **BenchmarkTypeConversion** - Type-specific conversion performance
+5. **BenchmarkMemoryAllocation** - Memory usage patterns at different scales
+6. **BenchmarkConnectionSetup** - Initialization overhead comparison
 
 ## Performance Optimization Guidelines
 

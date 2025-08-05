@@ -180,117 +180,6 @@ func BenchmarkThroughput(b *testing.B) {
 	}
 }
 
-// BenchmarkZeroAllocationParsing validates that type conversion doesn't allocate
-func BenchmarkZeroAllocationParsing(b *testing.B) {
-	// This benchmark demonstrates that once Arrow arrays are built,
-	// accessing values doesn't require heap allocations
-
-	ctx := context.Background()
-	databaseURL := getBenchDatabaseURL(b)
-
-	pool, err := pgarrow.NewPool(ctx, databaseURL)
-	require.NoError(b, err)
-	defer pool.Close()
-
-	// First, get some data into Arrow format
-	reader, err := pool.QueryArrow(ctx, `
-		SELECT 
-			i::int8,
-			(i * 3.14)::float8,
-			(i % 2 = 0)::bool,
-			'constant_string'::text,
-			'2023-01-01'::date
-		FROM generate_series(1, 1000) i
-	`)
-	require.NoError(b, err)
-	defer reader.Release()
-
-	// Collect records
-	var records []arrow.Record
-	for reader.Next() {
-		rec := reader.Record()
-		rec.Retain()
-		records = append(records, rec)
-	}
-	require.NoError(b, reader.Err())
-	require.NotEmpty(b, records)
-
-	record := records[0]
-	defer func() {
-		for _, r := range records {
-			r.Release()
-		}
-	}()
-
-	// Benchmark accessing values from Arrow arrays
-	b.Run("int64_access", func(b *testing.B) {
-		col := record.Column(0).(*array.Int64)
-		b.ResetTimer()
-		b.ReportAllocs()
-
-		var sum int64
-		for i := 0; i < b.N; i++ {
-			// Access values without allocation
-			for j := 0; j < col.Len(); j++ {
-				if !col.IsNull(j) {
-					sum += col.Value(j)
-				}
-			}
-		}
-		_ = sum
-	})
-
-	b.Run("float64_access", func(b *testing.B) {
-		col := record.Column(1).(*array.Float64)
-		b.ResetTimer()
-		b.ReportAllocs()
-
-		var sum float64
-		for i := 0; i < b.N; i++ {
-			for j := 0; j < col.Len(); j++ {
-				if !col.IsNull(j) {
-					sum += col.Value(j)
-				}
-			}
-		}
-		_ = sum
-	})
-
-	b.Run("bool_access", func(b *testing.B) {
-		col := record.Column(2).(*array.Boolean)
-		b.ResetTimer()
-		b.ReportAllocs()
-
-		var count int
-		for i := 0; i < b.N; i++ {
-			for j := 0; j < col.Len(); j++ {
-				if !col.IsNull(j) && col.Value(j) {
-					count++
-				}
-			}
-		}
-		_ = count
-	})
-
-	b.Run("string_access", func(b *testing.B) {
-		col := record.Column(3).(*array.String)
-		b.ResetTimer()
-		b.ReportAllocs()
-
-		var length int
-		for i := 0; i < b.N; i++ {
-			for j := 0; j < col.Len(); j++ {
-				if !col.IsNull(j) {
-					// Note: Value() returns string without allocation
-					// because it's a view into the underlying data
-					length += len(col.Value(j))
-				}
-			}
-		}
-		_ = length
-	})
-}
-
 // BenchmarkQueryComparison compares PGArrow vs pgx for various scenarios
 func BenchmarkQueryComparison(b *testing.B) {
 	databaseURL := getBenchDatabaseURL(b)
@@ -589,7 +478,7 @@ func BenchmarkPostgresBinaryParsing(b *testing.B) {
 		b.ReportAllocs()
 		var s string
 		for i := 0; i < b.N; i++ {
-			// Our actual parsing code - this allocates
+			// Simplified parsing for benchmark - actual production parsing of PostgreSQL wire format text is more complex
 			s = string(textData)
 		}
 		_ = s
@@ -622,16 +511,4 @@ func BenchmarkPostgresBinaryParsing(b *testing.B) {
 		_ = sum
 	})
 
-	// Alternative approaches we could benchmark against
-	b.Run("unsafe_int8_parse", func(b *testing.B) {
-		b.ReportAllocs()
-		var sum int64
-		for i := 0; i < b.N; i++ {
-			// Alternative: unsafe pointer cast (not used, but could be)
-			// This is what some high-performance parsers do
-			val := int64(binary.BigEndian.Uint64(int8Data))
-			sum += val
-		}
-		_ = sum
-	})
 }
