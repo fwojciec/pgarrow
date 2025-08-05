@@ -177,8 +177,7 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.R
 	conn, err := p.pool.Acquire(ctx)
 	if err != nil {
 		return nil, &ConnectionError{
-			ConnectionStr: maskConnectionString(""),
-			Err:           err,
+			Err: err,
 		}
 	}
 
