@@ -54,3 +54,6 @@ examples/types/types
 
 # Go profiling files
 *.prof
+
+# Coverage reports
+coverage.html

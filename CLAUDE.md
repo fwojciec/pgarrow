@@ -62,3 +62,25 @@ make validate  # Complete quality gate - run before completing any task
 ## File Structure
 
 Root package `pgarrow` with `*_test.go` tests, `examples/`, and `docs/`.
+
+## Test Philosophy
+
+**Why**: Our interface is PostgreSQL-compatible SQL → Arrow data. Testing at this level proves our solution works for users in real scenarios.
+
+**Approach**: Prefer integration tests that validate the complete data pipeline. Unit tests are reserved for edge cases that are important but difficult to reproduce through SQL.
+
+### Test Organization
+
+**Core Tests** (declarative SQL → Arrow validation):
+- `datatypes_test.go` - Type conversions
+- `queries_test.go` - SQL semantics (JOINs, CTEs, aggregations)
+- `errors_test.go` - Error conditions and pool lifecycle
+
+**Unit Tests** (implementation details):
+- `pgarrow_test.go` - Pool internals
+- `select_parser_test.go` - Parser edge cases
+
+**Performance**:
+- `*_bench_test.go` - Benchmarks and large-scale validation
+
+**Placement**: Add tests to existing files based on what you're testing. Avoid temporary test files.
