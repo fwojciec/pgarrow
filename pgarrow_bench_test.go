@@ -3,8 +3,10 @@ package pgarrow_test
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +45,237 @@ func consumeArrowReader(b *testing.B, reader array.RecordReader) int64 {
 	}
 	require.NoError(b, reader.Err())
 	return totalRows
+}
+
+// BenchmarkMetadataDiscovery measures the overhead of metadata discovery per query
+func BenchmarkMetadataDiscovery(b *testing.B) {
+	databaseURL := getBenchDatabaseURL(b)
+	ctx := context.Background()
+
+	pool, err := pgarrow.NewPool(ctx, databaseURL,
+		pgarrow.WithAllocator(memory.NewGoAllocator()))
+	require.NoError(b, err)
+	defer pool.Close()
+
+	// Also create a pgx pool for acquiring connections
+	pgxPool, err := pgxpool.New(ctx, databaseURL)
+	require.NoError(b, err)
+	defer pgxPool.Close()
+
+	// Test queries with different column counts
+	queries := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "simple_1_column",
+			sql:  "SELECT 1::int8",
+		},
+		{
+			name: "simple_5_columns",
+			sql:  "SELECT 1::int8, 2::int4, 3.14::float8, true::bool, 'text'::text",
+		},
+		{
+			name: "table_5_columns",
+			sql: `SELECT 
+				i::int8 as id,
+				(i * 3.14)::float8 as score,
+				(i % 2 = 0)::bool as active,
+				'user_' || i::text as name,
+				'2023-01-01'::date + i as created_date
+			FROM generate_series(1, 10) i`,
+		},
+	}
+
+	for _, q := range queries {
+		b.Run(q.name, func(b *testing.B) {
+			// Acquire connection once for all iterations
+			conn, err := pgxPool.Acquire(ctx)
+			require.NoError(b, err)
+			defer conn.Release()
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				schema, _, err := pool.GetQueryMetadata(ctx, conn, q.sql)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_ = schema // Prevent compiler optimization
+			}
+		})
+	}
+}
+
+// BenchmarkMetadataByColumnCount measures how metadata discovery scales with column count
+func BenchmarkMetadataByColumnCount(b *testing.B) {
+	databaseURL := getBenchDatabaseURL(b)
+	ctx := context.Background()
+
+	pool, err := pgarrow.NewPool(ctx, databaseURL,
+		pgarrow.WithAllocator(memory.NewGoAllocator()))
+	require.NoError(b, err)
+	defer pool.Close()
+
+	// Also create a pgx pool for acquiring connections
+	pgxPool, err := pgxpool.New(ctx, databaseURL)
+	require.NoError(b, err)
+	defer pgxPool.Close()
+
+	// Test cases with increasing column counts
+	columnCounts := []int{1, 5, 10, 25, 50}
+
+	for _, colCount := range columnCounts {
+		b.Run(fmt.Sprintf("%d_columns", colCount), func(b *testing.B) {
+			// Build query with specified number of columns
+			var sql string
+			if colCount == 1 {
+				sql = "SELECT 1::int8"
+			} else {
+				cols := make([]string, colCount)
+				for i := 0; i < colCount; i++ {
+					// Mix of data types
+					switch i % 5 {
+					case 0:
+						cols[i] = fmt.Sprintf("%d::int8 as col_%d", i, i)
+					case 1:
+						cols[i] = fmt.Sprintf("%d::int4 as col_%d", i, i)
+					case 2:
+						cols[i] = fmt.Sprintf("%f::float8 as col_%d", float64(i)*3.14, i)
+					case 3:
+						cols[i] = fmt.Sprintf("true::bool as col_%d", i)
+					case 4:
+						cols[i] = fmt.Sprintf("'text_%d'::text as col_%d", i, i)
+					}
+				}
+				sql = "SELECT " + strings.Join(cols, ", ")
+			}
+
+			conn, err := pgxPool.Acquire(ctx)
+			require.NoError(b, err)
+			defer conn.Release()
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				schema, _, err := pool.GetQueryMetadata(ctx, conn, sql)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if schema.NumFields() != colCount {
+					b.Fatalf("expected %d columns, got %d", colCount, schema.NumFields())
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkRepeatedSameQuery measures overhead when running the same query multiple times
+func BenchmarkRepeatedSameQuery(b *testing.B) {
+	databaseURL := getBenchDatabaseURL(b)
+	ctx := context.Background()
+
+	pool, err := pgarrow.NewPool(ctx, databaseURL,
+		pgarrow.WithAllocator(memory.NewGoAllocator()))
+	require.NoError(b, err)
+	defer pool.Close()
+
+	// Use a typical query
+	sql := `SELECT 
+		i::int8 as id,
+		(i * 3.14)::float8 as score,
+		(i % 2 = 0)::bool as active,
+		'user_' || i::text as name,
+		'2023-01-01'::date + i as created_date
+	FROM generate_series(1, 1000) i`
+
+	b.Run("metadata_discovery_per_query", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// Each iteration includes full metadata discovery
+			reader, err := pool.QueryArrow(ctx, sql)
+			if err != nil {
+				b.Fatal(err)
+			}
+			// Consume results to make it realistic
+			_ = consumeArrowReader(b, reader)
+			reader.Release()
+		}
+	})
+
+	// For comparison, also benchmark just the query execution without measuring metadata separately
+	b.Run("full_query_execution", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			reader, err := pool.QueryArrow(ctx, sql)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = consumeArrowReader(b, reader)
+			reader.Release()
+		}
+	})
+}
+
+// BenchmarkQueryWithMetadataComparison attempts to show the difference between
+// queries with and without metadata discovery overhead
+func BenchmarkQueryWithMetadataComparison(b *testing.B) {
+	databaseURL := getBenchDatabaseURL(b)
+	ctx := context.Background()
+
+	pool, err := pgarrow.NewPool(ctx, databaseURL,
+		pgarrow.WithAllocator(memory.NewGoAllocator()))
+	require.NoError(b, err)
+	defer pool.Close()
+
+	// Also create a pgx pool for acquiring connections
+	pgxPool, err := pgxpool.New(ctx, databaseURL)
+	require.NoError(b, err)
+	defer pgxPool.Close()
+
+	// Simple query for minimal execution overhead
+	sql := "SELECT i::int8 FROM generate_series(1, 100) i"
+
+	b.Run("with_metadata_discovery", func(b *testing.B) {
+		conn, err := pgxPool.Acquire(ctx)
+		require.NoError(b, err)
+		defer conn.Release()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// Measure just metadata discovery
+			start := time.Now()
+			schema, _, err := pool.GetQueryMetadata(ctx, conn, sql)
+			metadataTime := time.Since(start)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = schema
+			b.ReportMetric(float64(metadataTime.Nanoseconds()), "metadata_ns/op")
+		}
+	})
+
+	b.Run("query_execution_only", func(b *testing.B) {
+		// Pre-discover metadata once
+		conn, err := pgxPool.Acquire(ctx)
+		require.NoError(b, err)
+		defer conn.Release()
+
+		schema, _, err := pool.GetQueryMetadata(ctx, conn, sql)
+		require.NoError(b, err)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// This simulates what execution would be like if metadata was cached
+			// Note: We can't actually bypass metadata discovery in the current implementation
+			// but we can measure the full query and subtract metadata time
+			reader, err := pool.QueryArrow(ctx, sql)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = consumeArrowReader(b, reader)
+			reader.Release()
+		}
+		_ = schema // Use schema to prevent optimization
+	})
 }
 
 // consumePgxRows iterates through pgx rows and returns count

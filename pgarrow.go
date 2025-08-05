@@ -183,7 +183,7 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.R
 	}
 
 	// Get metadata and create compiled schema
-	schema, _, err := p.getQueryMetadata(ctx, conn, sql, args...)
+	schema, _, err := p.GetQueryMetadata(ctx, conn, sql, args...)
 	if err != nil {
 		conn.Release()
 		return nil, &QueryError{
@@ -207,8 +207,9 @@ func (p *Pool) QueryArrow(ctx context.Context, sql string, args ...any) (array.R
 	return reader, nil
 }
 
-// getQueryMetadata uses PREPARE to extract column metadata without executing the query
-func (p *Pool) getQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql string, _ ...any) (*arrow.Schema, []uint32, error) {
+// GetQueryMetadata uses PREPARE to extract column metadata without executing the query.
+// This method is exposed for benchmarking purposes to measure metadata discovery overhead.
+func (p *Pool) GetQueryMetadata(ctx context.Context, conn *pgxpool.Conn, sql string, _ ...any) (*arrow.Schema, []uint32, error) {
 	// Use PREPARE to get metadata without executing the full query - much more efficient!
 	// Generate a unique statement name to avoid collisions in concurrent usage
 	stmtName := fmt.Sprintf("pgarrow_meta_%p", conn)
