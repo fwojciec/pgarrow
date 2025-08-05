@@ -1,222 +1,223 @@
-# Testing Guide
+# Testing Guide for LLMs
 
-## Table-Based Integration Testing Strategy
+This guide provides clear instructions for LLMs on how to work with the PGArrow test suite.
 
-PGArrow uses a comprehensive table-based integration testing approach inspired by SQLite and DuckDB methodologies. This strategy focuses on testing the complete data pipeline with real PostgreSQL data rather than individual components in isolation.
+## Core Testing Principle
 
-### Core Philosophy
+**Test the interface, not the implementation**: Our interface is PostgreSQL-compatible SQL → Arrow data. Always prefer testing through SQL queries that validate real user scenarios.
 
-- **Real Data Testing**: Uses actual PostgreSQL COPY TO BINARY format instead of mock data
-- **Comprehensive Coverage**: Single table-based test covers all data types and edge cases  
-- **Schema Isolation**: Each test creates its own isolated schema for safe parallel execution
-- **Future-Ready**: Adding new PostgreSQL types requires only adding test cases to the table
+## Test Organization
 
-### Primary Test: TestQueryArrowDataTypes
+### Integration Tests (Default Approach)
 
-The main comprehensive test (`TestQueryArrowDataTypes` in `integration_test.go`) covers:
+Integration tests validate the complete PostgreSQL → Arrow pipeline and should be your default choice.
 
-- **All supported data types**: All 17 PostgreSQL types including `bool`, `bytea`, integers, floats, text types, and temporal types
-- **Edge cases**: Min/max values, precision limits, special float values (NaN, Infinity)
-- **NULL handling**: Comprehensive NULL testing across all data types
-- **Mixed type queries**: Complex queries with multiple data types
-- **Text encoding**: Unicode, special characters, empty strings
-- **Custom table creation**: Each test case creates its own isolated tables
-
-### Test Structure
+**Pattern**: Declarative test cases using the `testCase` struct
 
 ```go
-tests := []struct {
-    name         string
-    setupSQL     string           // CREATE TABLE and INSERT statements
-    querySQL     string           // SELECT query to test
-    expectedRows int64           
-    expectedCols int64           
-    validateFunc func(t *testing.T, record arrow.Record) // Custom validation
-}{
-    {
-        name: "bool_all_values",
-        setupSQL: `CREATE TABLE test_bool (val bool); 
-                   INSERT INTO test_bool VALUES (true), (false), (null);`,
-        querySQL: "SELECT * FROM test_bool ORDER BY val NULLS LAST",
-        expectedRows: 3,
-        expectedCols: 1,
-        validateFunc: func(t *testing.T, record arrow.Record) {
-            // Detailed validation logic
-        },
+testCase{
+    name:     "descriptive_test_name",
+    setup:    "CREATE TABLE ...; INSERT ...",  // Optional setup SQL
+    query:    "SELECT ...",                    // The query to test
+    args:     []any{...},                      // Optional query arguments
+    wantErr:  "expected error substring",      // For error testing
+    validate: func(t *testing.T, records []arrow.Record) {
+        // Validate Arrow data
     },
-    // ... more comprehensive test cases
 }
 ```
 
-### Setup
+**Where to add integration tests**:
+- `datatypes_test.go` - Type conversion tests
+- `queries_test.go` - SQL semantics (JOINs, CTEs, aggregations)
+- `errors_test.go` - Error conditions and edge cases
 
-1. **Create test database and user:**
-   ```sql
-   -- Connect to PostgreSQL as superuser
-   CREATE DATABASE pgarrow_test;
-   CREATE USER pgarrow_test WITH PASSWORD 'pgarrow_test_password';
-   GRANT ALL PRIVILEGES ON DATABASE pgarrow_test TO pgarrow_test;
-   
-   -- Connect to pgarrow_test database
-   \c pgarrow_test
-   GRANT CREATE ON SCHEMA public TO pgarrow_test;
-   ```
+**How to add a quality integration test**:
 
-2. **Run tests:**
-   ```bash
-   # Run all tests with race detection
-   TEST_DATABASE_URL=postgres://user:pass@host:port/db?sslmode=disable go test -race ./...
-   
-   # Run comprehensive data type tests
-   TEST_DATABASE_URL=postgres://user:pass@host:port/db?sslmode=disable go test -v -run TestQueryArrowDataTypes
-   
-   # Run specific test case
-   TEST_DATABASE_URL=postgres://user:pass@host:port/db?sslmode=disable go test -v -run TestQueryArrowDataTypes/bool_all_values
-   ```
+1. **Choose the right file** based on what you're testing
+2. **Add to existing test function** (e.g., `TestDataTypes`, `TestQueries`)
+3. **Write minimal SQL** that demonstrates the feature
+4. **Use clear test names** that describe what's being tested
+5. **Validate comprehensively** in the validate function
 
-### Test Isolation & Schema Management
+Example of adding a new data type test:
 
-Each test case:
-- Creates a unique isolated schema: `test_{randomID}_{timestamp}`
-- Sets up custom tables within that schema using `setupSQL`
-- Creates a dedicated connection pool with `search_path` pointing to the test schema
-- Automatically cleans up the schema after test completion
-- Runs in parallel with other tests safely
-
-**Schema Isolation Implementation:**
 ```go
-// Each test gets its own schema and connection pool
-schemaName := fmt.Sprintf("test_%s_%d", randomID(), time.Now().UnixNano())
-connStrWithSchema := fmt.Sprintf("%s&search_path=%s,public", baseConnStr, schemaName)
-pool, err := pgarrow.NewPool(ctx, connStrWithSchema)
+// In datatypes_test.go, add to TestDataTypes:
+{
+    name:  "json_values",
+    query: `SELECT '{"key": "value"}'::json, NULL::json`,
+    validate: func(t *testing.T, records []arrow.Record) {
+        require.Len(t, records, 1)
+        rec := records[0]
+        require.Equal(t, `{"key": "value"}`, rec.Column(0).(*array.String).Value(0))
+        require.True(t, rec.Column(1).IsNull(0))
+    },
+},
 ```
 
-### Memory Safety with CheckedAllocator
+### Unit Tests (Exception Cases)
 
-PGArrow tests use Arrow's `CheckedAllocator` to detect memory leaks and ensure proper resource cleanup. This is critical for catching memory management issues in Arrow record processing.
+Unit tests are for edge cases that are important but difficult to reproduce through SQL.
 
-**Proper Usage Pattern:**
+**Pattern**: Standard Go test functions testing specific implementations
+
+**Naming convention**: Test files must match the file they test
+- `select_parser.go` → `select_parser_test.go`
+- `pgarrow.go` → `pgarrow_test.go`
+
+**When to write unit tests**:
+- Testing error paths that can't be triggered through SQL
+- Testing internal state management
+- Testing performance-critical code paths
+
+Example of adding a unit test:
+
 ```go
-func TestYourFunction(t *testing.T) {
+// In select_parser_test.go
+func TestSelectParser_EdgeCase(t *testing.T) {
     t.Parallel()
-
-    // Create checked allocator for memory leak detection
-    alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
-    defer alloc.AssertSize(t, 0) // Will fail test if memory leaked
-
-    // Use setupTestDBWithAllocator to ensure Pool uses the checked allocator
-    pool, cleanup := setupTestDBWithAllocator(t, alloc)
-    defer cleanup()
-
-    // Your test logic here...
-    reader, err := pool.QueryArrow(ctx, "SELECT * FROM test_table")
-    require.NoError(t, err)
-    defer reader.Release() // Critical: always release Arrow resources
-
-    // Process records...
-    for reader.Next() {
-        record := reader.Record()
-        // Use record...
-        // record.Release() is handled automatically by reader
-    }
+    // Direct testing of SelectParser implementation
 }
 ```
 
-**Common Memory Leak Causes:**
-- Forgetting to call `reader.Release()`
-- Not releasing Arrow records when manually creating them
-- Using `setupTestDB()` instead of `setupTestDBWithAllocator()` (allocator mismatch)
+## Best Practices
 
-**Helper Functions:**
-- `setupTestDBWithAllocator(t, alloc)`: Creates pool with custom allocator for proper tracking
-- `setupTestDB(t)`: Creates pool with default allocator (use only when not testing memory)
+### 1. Always Use Test Isolation
 
-### Environment Variables
-
-- `TEST_DATABASE_URL`: PostgreSQL connection string for tests
-  - **Required** for integration tests
-  - Tests are **skipped** if not set
-  - Format: `postgres://user:pass@host:port/db?sslmode=disable`
-
-### Benefits of Table-Based Testing
-
-1. **Simplified Maintenance**: Adding new PostgreSQL types = adding rows to test table
-2. **Higher Fidelity**: Tests real PostgreSQL data conversion pipeline
-3. **Reduced Code**: ~60% reduction in test code while improving coverage  
-4. **Better Debugging**: Test failures show exactly which data type/scenario failed
-5. **Extensible**: Easy to add comprehensive test coverage for new types
-6. **No Mock Data**: Eliminates complex mock data generators
-
-### File Structure
-
-```
-integration_test.go             # Main table-based integration tests
-pgarrow_bench_test.go           # Performance benchmarks  
-types_bench_test.go             # Type-specific benchmarks
-```
-
-### Metadata Discovery Strategy
-
-PGArrow uses PostgreSQL's **PREPARE statement** for efficient metadata discovery, matching the approach used by pgx internally.
-
-**Efficient Implementation**: 
-
-We discovered that `pgxpool.Conn` provides access to the underlying `*pgx.Conn` through the `Conn()` method, which has a `Prepare()` method that efficiently gets field descriptions without executing the query:
+Every integration test runs in an isolated schema:
 
 ```go
-// Generate unique statement name to avoid collisions
-stmtName := fmt.Sprintf("pgarrow_meta_%p", conn)
-
-// Use PREPARE to get metadata without executing the query
-sd, err := conn.Conn().Prepare(ctx, stmtName, sql)
-if err != nil {
-    return nil, nil, fmt.Errorf("failed to prepare statement: %w", err)
-}
-
-// Clean up prepared statement
-defer func() {
-    _, _ = conn.Conn().Exec(ctx, "DEALLOCATE "+stmtName)
-}()
-
-// Use field descriptions from prepared statement
-for i, field := range sd.Fields {
-    columns[i] = ColumnInfo{Name: field.Name, OID: field.DataTypeOID}
-}
+// This is handled automatically by runTests()
+pool, cleanup := isolatedTest(t, tc.setup)
+defer cleanup()
 ```
 
-**Why This Works**: The `conn.Conn().Prepare()` method uses pgx's internal `pgConn.Prepare()` functionality, providing the same efficiency as pgx's own query execution modes while being available through the public API.
+### 2. Test Comprehensively
 
-**Benefits**: 
-- No query execution required for metadata discovery
-- Compatible with all SQL query structures that PostgreSQL can prepare
-- Matches pgx's internal efficiency patterns
-- Maintains connection pool compatibility
+Include in every test case:
+- Normal values
+- Edge cases (min/max values)
+- NULL handling
+- Empty results where applicable
 
-### Adding New Test Cases
+### 3. Use Parallel Testing
 
-To test a new PostgreSQL data type:
+Always mark tests as parallel:
 
-1. Add a new test case to the `tests` slice in `TestQueryArrowDataTypes`
-2. Provide `setupSQL` to create table and insert test data
-3. Provide `querySQL` to test the data type conversion
-4. Implement `validateFunc` to verify Arrow record contents
-5. Include edge cases, NULL handling, and boundary conditions
+```go
+t.Parallel()
+```
 
-Example:
+### 4. Memory Safety
+
+For unit tests that create Arrow resources:
+
+```go
+alloc := memory.NewCheckedAllocator(memory.NewGoAllocator())
+t.Cleanup(func() { alloc.AssertSize(t, 0) })
+```
+
+### 5. Clear Test Names
+
+Use descriptive names that indicate what's being tested:
+- ✅ `timestamp_microsecond_precision`
+- ❌ `test1`
+
+## Adding Tests for New Functionality
+
+### Step 1: Determine Test Type
+
+Ask yourself: "Can I test this through SQL?"
+- **Yes** → Write integration test (preferred)
+- **No** → Write unit test
+
+### Step 2: Find the Right Location
+
+Integration tests:
+- Type conversion → `datatypes_test.go`
+- SQL features → `queries_test.go`
+- Errors → `errors_test.go`
+
+Unit tests:
+- Create/use `<filename>_test.go` matching the implementation file
+
+### Step 3: Write the Test
+
+Integration test template:
 ```go
 {
-    name: "new_type_comprehensive",
-    setupSQL: `CREATE TABLE test_new_type (val new_type); 
-               INSERT INTO test_new_type VALUES (normal_val), (edge_case), (null);`,
-    querySQL: "SELECT * FROM test_new_type ORDER BY val NULLS LAST",
-    expectedRows: 3,
-    expectedCols: 1,
-    validateFunc: func(t *testing.T, record arrow.Record) {
-        col, ok := record.Column(0).(*array.NewTypeArray)
-        require.True(t, ok)
-        // Validate converted values...
+    name:  "feature_being_tested",
+    query: "SELECT ... that exercises the feature",
+    validate: func(t *testing.T, records []arrow.Record) {
+        // Comprehensive validation
+        require.Len(t, records, 1)
+        // Check data correctness
+        // Check NULL handling
+        // Check edge cases
     },
-}
+},
 ```
 
-This approach ensures comprehensive, maintainable, and reliable testing as PGArrow expands its PostgreSQL type support.
+### Step 4: Verify Coverage
+
+Run tests with coverage:
+```bash
+TEST_DATABASE_URL="..." go test -coverprofile=coverage.out
+go tool cover -html=coverage.out -o coverage.html
+```
+
+## Common Patterns
+
+### Testing Type Conversions
+
+```go
+{
+    name:  "type_edge_cases",
+    query: "SELECT min_val::type, max_val::type, normal::type, NULL::type",
+    validate: func(t *testing.T, records []arrow.Record) {
+        // Validate each case
+    },
+},
+```
+
+### Testing SQL Features
+
+```go
+{
+    name:  "complex_join",
+    setup: "CREATE TABLE t1 ...; CREATE TABLE t2 ...; INSERT ...",
+    query: "SELECT ... FROM t1 JOIN t2 ON ...",
+    validate: func(t *testing.T, records []arrow.Record) {
+        // Validate join results
+    },
+},
+```
+
+### Testing Error Conditions
+
+```go
+{
+    name:    "invalid_operation",
+    query:   "SELECT 1/0",
+    wantErr: "division by zero",
+},
+```
+
+## Environment Setup
+
+Tests require PostgreSQL access via `TEST_DATABASE_URL`:
+
+```bash
+export TEST_DATABASE_URL="postgres://user:pass@localhost:5432/testdb?sslmode=disable"
+```
+
+## Summary
+
+1. **Default to integration tests** - they test what users actually do
+2. **Add tests to existing files** - avoid creating new test files
+3. **Test through SQL** - this validates the real interface
+4. **Be comprehensive** - include edge cases and NULL handling
+5. **Keep tests focused** - one concept per test case
+
+Remember: If you can test it through SQL, that's the preferred approach. Unit tests are the exception, not the rule.

@@ -23,11 +23,10 @@ const (
 // using the pgx binary protocol for optimal performance.
 // This implementation achieves 2x performance improvement over COPY BINARY protocol.
 type SelectParser struct {
-	conn      *pgx.Conn
-	alloc     memory.Allocator
-	schema    *arrow.Schema
-	builders  []array.Builder
-	scanPlans []ScanPlan
+	conn     *pgx.Conn
+	alloc    memory.Allocator
+	schema   *arrow.Schema
+	builders []array.Builder
 
 	// Batch management
 	batchRows    int64
@@ -49,27 +48,13 @@ func NewSelectParser(conn *pgx.Conn, schema *arrow.Schema, alloc memory.Allocato
 		alloc:        alloc,
 		schema:       schema,
 		builders:     make([]array.Builder, len(schema.Fields())),
-		scanPlans:    make([]ScanPlan, len(schema.Fields())),
 		maxBatchRows: OptimalBatchSize,
 	}
 
-	// Create builders and scan plans for each field
+	// Create builders for each field
 	for i, field := range schema.Fields() {
 		builder := array.NewBuilder(alloc, field.Type)
 		p.builders[i] = builder
-
-		// Create scan plan for this field type
-		scanPlan, err := createScanPlan(field.Type)
-		if err != nil {
-			// Clean up builders created so far
-			for j := 0; j <= i; j++ {
-				if p.builders[j] != nil {
-					p.builders[j].Release()
-				}
-			}
-			return nil, fmt.Errorf("unsupported type %s for field %s: %w", field.Type, field.Name, err)
-		}
-		p.scanPlans[i] = scanPlan
 	}
 
 	return p, nil
@@ -239,13 +224,19 @@ func (p *SelectParser) parseBinaryValue(fieldIndex int, data []byte) error {
 		return p.parseBool(data, builder)
 	case arrow.STRING:
 		return p.parseString(data, builder)
+	case arrow.BINARY:
+		return p.parseBinary(data, builder)
 	case arrow.DATE32:
 		return p.parseDate32(data, builder)
 	case arrow.TIMESTAMP:
 		return p.parseTimestamp(data, builder, fieldType)
+	case arrow.TIME64:
+		return p.parseTime64(data, builder)
+	case arrow.INTERVAL_MONTH_DAY_NANO:
+		return p.parseInterval(data, builder)
 	default:
-		// Fall back to scan plan for complex types
-		return p.scanPlans[fieldIndex].ScanToBuilder(data, builder)
+		return fmt.Errorf("unsupported Arrow type for field %s: %s (ID: %v)",
+			p.schema.Field(fieldIndex).Name, fieldType, fieldType.ID())
 	}
 }
 
@@ -384,6 +375,64 @@ func (p *SelectParser) parseTimestamp(data []byte, builder array.Builder, fieldT
 	default:
 		return fmt.Errorf("unsupported timestamp unit: %v", tsType.Unit)
 	}
+	return nil
+}
+
+// parseBinary handles PostgreSQL BYTEA
+func (p *SelectParser) parseBinary(data []byte, builder array.Builder) error {
+	b, ok := builder.(*array.BinaryBuilder)
+	if !ok {
+		return fmt.Errorf("expected *array.BinaryBuilder, got %T", builder)
+	}
+	b.Append(data)
+	return nil
+}
+
+// parseTime64 handles PostgreSQL TIME as microseconds
+func (p *SelectParser) parseTime64(data []byte, builder array.Builder) error {
+	if len(data) != 8 {
+		return fmt.Errorf("invalid time data length: %d", len(data))
+	}
+	// PostgreSQL sends microseconds since midnight
+	pgMicros := int64(binary.BigEndian.Uint64(data))
+
+	b, ok := builder.(*array.Time64Builder)
+	if !ok {
+		return fmt.Errorf("expected *array.Time64Builder, got %T", builder)
+	}
+	b.Append(arrow.Time64(pgMicros))
+	return nil
+}
+
+// parseInterval handles PostgreSQL INTERVAL
+func (p *SelectParser) parseInterval(data []byte, builder array.Builder) error {
+	if len(data) != 16 {
+		return fmt.Errorf("invalid interval data length: %d", len(data))
+	}
+
+	// PostgreSQL binary format sends:
+	// - 8 bytes: microseconds (int64)
+	// - 4 bytes: days (int32)
+	// - 4 bytes: months (int32)
+	microseconds := int64(binary.BigEndian.Uint64(data[0:8]))
+	days := int32(binary.BigEndian.Uint32(data[8:12]))
+	months := int32(binary.BigEndian.Uint32(data[12:16]))
+
+	// Convert microseconds to nanoseconds
+	nanoseconds := microseconds * 1000
+
+	// Create Arrow interval
+	interval := arrow.MonthDayNanoInterval{
+		Months:      months,
+		Days:        days,
+		Nanoseconds: nanoseconds,
+	}
+
+	b, ok := builder.(*array.MonthDayNanoIntervalBuilder)
+	if !ok {
+		return fmt.Errorf("expected *array.MonthDayNanoIntervalBuilder, got %T", builder)
+	}
+	b.Append(interval)
 	return nil
 }
 
