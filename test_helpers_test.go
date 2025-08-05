@@ -2,8 +2,9 @@ package pgarrow_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -77,15 +78,15 @@ func isolatedTest(t *testing.T, setupSQL string) (*pgarrow.Pool, func()) {
 	t.Helper()
 
 	// Get test database URL
-	dbURL := getDatabaseURL(t)
+	dbURL := getTestDatabaseURL(t)
 
 	// Create admin connection
 	ctx := context.Background()
 	adminPool, err := pgxpool.New(ctx, dbURL)
 	require.NoError(t, err)
 
-	// Create isolated schema with timestamp and random number
-	schemaName := fmt.Sprintf("test_%d_%d", time.Now().UnixNano(), rand.Intn(10000))
+	// Create isolated schema with timestamp and random suffix
+	schemaName := fmt.Sprintf("test_%d_%s", time.Now().UnixNano(), randomID())
 	_, err = adminPool.Exec(ctx, fmt.Sprintf("CREATE SCHEMA %s", schemaName))
 	require.NoError(t, err)
 
@@ -117,8 +118,8 @@ func isolatedTest(t *testing.T, setupSQL string) (*pgarrow.Pool, func()) {
 	return pool, cleanup
 }
 
-// getDatabaseURL returns the test database connection string
-func getDatabaseURL(t *testing.T) string {
+// getTestDatabaseURL returns the test database connection string
+func getTestDatabaseURL(t *testing.T) string {
 	t.Helper()
 
 	// Check for environment variable first
@@ -129,6 +130,15 @@ func getDatabaseURL(t *testing.T) string {
 	// Skip test if no database URL is available
 	t.Skip("TEST_DATABASE_URL not set, skipping integration test")
 	return ""
+}
+
+// randomID generates a cryptographically secure random string for schema names
+func randomID() string {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(bytes)
 }
 
 // Common validation helpers

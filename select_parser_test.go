@@ -505,6 +505,8 @@ func TestSelectParserCoverage(t *testing.T) {
 	t.Run("SetBatchSize", func(t *testing.T) {
 		t.Parallel()
 		// Create a minimal parser to test SetBatchSize
+		// Note: We intentionally pass nil for the connection since SetBatchSize
+		// doesn't require a connection and we're only testing the setter method
 		alloc := memory.DefaultAllocator
 		schema := arrow.NewSchema([]arrow.Field{
 			{Name: "id", Type: arrow.PrimitiveTypes.Int32},

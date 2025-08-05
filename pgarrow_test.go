@@ -2,10 +2,7 @@ package pgarrow_test
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -15,26 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// getTestDatabaseURL returns the test database URL from environment
-func getTestDatabaseURL(t *testing.T) string {
-	t.Helper()
-
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL not set, skipping integration test")
-	}
-	return databaseURL
-}
-
-// randomID generates a random string for schema names
-func randomID() string {
-	bytes := make([]byte, 8)
-	if _, err := rand.Read(bytes); err != nil {
-		panic(err)
-	}
-	return hex.EncodeToString(bytes)
-}
-
 // createIsolatedTestEnv creates an isolated test environment with custom SQL setup
 // This is the flexible version that allows custom table creation
 func createIsolatedTestEnv(t *testing.T, setupSQL string) (*pgarrow.Pool, func()) {
@@ -42,7 +19,9 @@ func createIsolatedTestEnv(t *testing.T, setupSQL string) (*pgarrow.Pool, func()
 
 	ctx := context.Background()
 	databaseURL := getTestDatabaseURL(t)
-	schemaName := fmt.Sprintf("test_%s_%d", randomID(), time.Now().UnixNano())
+
+	// Create isolated schema with timestamp and random suffix
+	schemaName := fmt.Sprintf("test_%d_%s", time.Now().UnixNano(), randomID())
 
 	// Create schema
 	conn, err := pgx.Connect(ctx, databaseURL)
@@ -89,8 +68,8 @@ func setupTestDB(t *testing.T) (*pgarrow.Pool, func()) {
 	// Get database URL from environment
 	databaseURL := getTestDatabaseURL(t)
 
-	// Create random schema name for isolation
-	schemaName := fmt.Sprintf("test_%s_%d", randomID(), time.Now().UnixNano())
+	// Create isolated schema with timestamp and random suffix
+	schemaName := fmt.Sprintf("test_%d_%s", time.Now().UnixNano(), randomID())
 
 	// Create the schema using a regular pgx connection
 	conn, err := pgx.Connect(context.Background(), databaseURL)
