@@ -37,7 +37,6 @@ PGArrow uses PostgreSQL's SELECT protocol with binary format optimization, achie
 - **SELECT over COPY**: 86% faster than COPY protocol for read workflows ([detailed investigation](docs/performance-investigation-2025.md))
 - **Binary wire format**: Direct access via pgx's RawValues() API
 - **Optimized batching**: 200K rows per batch based on empirical testing
-- **Zero-allocation conversions**: All 17 supported types achieve zero heap allocations
 
 ## Quick Start
 
@@ -133,11 +132,9 @@ Unlike libraries that use COPY protocol or require extensive metadata preloading
 - **CompiledSchema optimization**: Direct binary-to-Arrow conversion pipeline
 
 **ColumnWriter Performance:**
-- **Primitive types** (bool, integers, floats): 5-7 ns/op, zero allocations
-- **String types**: ~12.7 ns/op, zero allocations with memory-safe buffer management  
-- **Complex types** (intervals, timestamps): 6-9 ns/op, zero allocations
-
-All 17 supported PostgreSQL data types achieve zero heap allocations during Arrow conversion.
+- **Primitive types** (bool, integers, floats): 5-7 ns/op per value
+- **String types**: ~12.7 ns/op per value with memory-safe buffer management  
+- **Complex types** (intervals, timestamps): 6-9 ns/op per value
 
 **Memory Efficiency:**
 - **Current implementation**: 38,284 B/op, 1,538 allocs/op (optimized)
