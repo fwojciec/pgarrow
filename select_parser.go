@@ -38,8 +38,8 @@ type SelectParser struct {
 	currentRows   pgx.Rows
 
 	// Reusable buffers for numeric parsing (avoids allocations)
-	numericDigits [256]int16 // PostgreSQL numeric can have up to 131072 digits total, but practically much less
-	numericBuffer [1024]byte // Buffer for building numeric strings
+	numericDigits [256]int16 // Buffer sized for practical PostgreSQL numeric digit counts, not the theoretical maximum (131072 digits)
+	numericBuffer [1024]byte // Buffer sized for typical numeric string representations seen in practice
 	digitConvBuf  [5]byte    // Buffer for digit conversion (max 4 digits + null)
 }
 
@@ -560,6 +560,7 @@ func (p *SelectParser) formatNumericToBuffer(digits []int16, ndigits, weight int
 			}
 
 			// Format with padding
+			// Return value ignored - we always read 4 padded digits from digitConvBuf
 			_ = p.formatInt16(dig, true)
 			for i := 0; i < 4 && totalDecimalDigits < int(dscale); i++ {
 				p.numericBuffer[pos] = p.digitConvBuf[i]
