@@ -493,36 +493,57 @@ func (p *SelectParser) parseNumeric(data []byte, builder array.Builder) error {
 		return fmt.Errorf("invalid numeric data: expected %d bytes, got %d", expectedLen, len(data))
 	}
 
-	// Check buffer capacity
-	if ndigits > int16(len(p.numericDigits)) {
-		return fmt.Errorf("numeric has too many digits: %d (max supported: %d)", ndigits, len(p.numericDigits))
+	// Calculate required buffer size based on weight and dscale
+	// Each base-10000 digit produces up to 4 decimal digits
+	// Weight indicates highest power, so (weight+1)*4 digits before decimal
+	// Plus dscale digits after decimal, plus sign and decimal point
+	requiredBufSize := int(weight+1)*4 + int(dscale) + 10
+	if requiredBufSize < 0 {
+		// Handle negative weight (0.000... numbers)
+		requiredBufSize = int(dscale) + 10
 	}
 
-	// Read digits into pre-allocated buffer (zero allocation)
-	for i := int16(0); i < ndigits; i++ {
-		p.numericDigits[i] = int16(binary.BigEndian.Uint16(data[8+i*2 : 10+i*2]))
+	// Fast path: use pre-allocated buffers for common cases
+	var digits []int16
+	var buffer []byte
+
+	if ndigits <= int16(len(p.numericDigits)) && requiredBufSize <= len(p.numericBuffer) {
+		// Common case: fits in pre-allocated buffer (zero allocation)
+		for i := int16(0); i < ndigits; i++ {
+			p.numericDigits[i] = int16(binary.BigEndian.Uint16(data[8+i*2 : 10+i*2]))
+		}
+		digits = p.numericDigits[:ndigits]
+		buffer = p.numericBuffer[:]
+	} else {
+		// Rare case: very large numeric, allocate temporary buffers
+		// This handles PostgreSQL's theoretical maximum of 131,072 digits
+		digits = make([]int16, ndigits)
+		for i := int16(0); i < ndigits; i++ {
+			digits[i] = int16(binary.BigEndian.Uint16(data[8+i*2 : 10+i*2]))
+		}
+		buffer = make([]byte, requiredBufSize)
 	}
 
-	// Build string representation using pre-allocated buffer
-	n := p.formatNumericToBuffer(p.numericDigits[:ndigits], ndigits, weight, sign, dscale)
+	// Build string representation
+	n := p.formatNumericToBuffer(digits, buffer, ndigits, weight, sign, dscale)
 	// Unfortunately we still need to allocate a string for Arrow's StringBuilder
-	stringBuilder.Append(string(p.numericBuffer[:n]))
+	stringBuilder.Append(string(buffer[:n]))
 	return nil
 }
 
 // formatNumericToBuffer formats numeric directly into buffer, returns length
-func (p *SelectParser) formatNumericToBuffer(digits []int16, ndigits, weight int16, sign uint16, dscale uint16) int {
+func (p *SelectParser) formatNumericToBuffer(digits []int16, buffer []byte, ndigits, weight int16, sign uint16, dscale uint16) int {
 	pos := 0
 
 	// Add negative sign if needed
 	if sign == numericNeg {
-		p.numericBuffer[pos] = '-'
+		buffer[pos] = '-'
 		pos++
 	}
 
 	// Handle digits before decimal point
 	if weight < 0 {
-		p.numericBuffer[pos] = '0'
+		buffer[pos] = '0'
 		pos++
 	} else {
 		for d := 0; d <= int(weight); d++ {
@@ -534,12 +555,12 @@ func (p *SelectParser) formatNumericToBuffer(digits []int16, ndigits, weight int
 			if d == 0 {
 				// First digit - no leading zeros
 				n := p.formatInt16(dig, false)
-				copy(p.numericBuffer[pos:], p.digitConvBuf[:n])
+				copy(buffer[pos:], p.digitConvBuf[:n])
 				pos += n
 			} else {
 				// Subsequent digits - pad with zeros
 				n := p.formatInt16(dig, true)
-				copy(p.numericBuffer[pos:], p.digitConvBuf[:n])
+				copy(buffer[pos:], p.digitConvBuf[:n])
 				pos += n
 			}
 		}
@@ -547,7 +568,7 @@ func (p *SelectParser) formatNumericToBuffer(digits []int16, ndigits, weight int
 
 	// Add decimal point and digits after if needed
 	if dscale > 0 {
-		p.numericBuffer[pos] = '.'
+		buffer[pos] = '.'
 		pos++
 
 		startDigit := int(weight) + 1
@@ -563,7 +584,7 @@ func (p *SelectParser) formatNumericToBuffer(digits []int16, ndigits, weight int
 			// Return value ignored - we always read 4 padded digits from digitConvBuf
 			_ = p.formatInt16(dig, true)
 			for i := 0; i < 4 && totalDecimalDigits < int(dscale); i++ {
-				p.numericBuffer[pos] = p.digitConvBuf[i]
+				buffer[pos] = p.digitConvBuf[i]
 				pos++
 				totalDecimalDigits++
 			}
