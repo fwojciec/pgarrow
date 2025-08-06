@@ -519,6 +519,8 @@ func BenchmarkTypeConversion(b *testing.B) {
 		{"date", "SELECT '2023-01-01'::date FROM generate_series(1, 1000)", nil},
 		{"timestamp", "SELECT '2023-01-01 12:00:00'::timestamp FROM generate_series(1, 1000)", nil},
 		{"timestamptz", "SELECT '2023-01-01 12:00:00+00'::timestamptz FROM generate_series(1, 1000)", nil},
+		{"numeric", "SELECT 123.456::numeric FROM generate_series(1, 1000)", nil},
+		{"numeric_large", "SELECT 12345678901234567890.123456789::numeric FROM generate_series(1, 1000)", nil},
 	}
 
 	for _, tt := range types {

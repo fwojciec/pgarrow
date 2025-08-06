@@ -78,11 +78,6 @@ func TestErrorsSimple(t *testing.T) {
 			wantErr: "unsupported PostgreSQL type OID: 26",
 		},
 		{
-			name:    "unsupported_numeric_type",
-			query:   "SELECT 123.456::numeric",
-			wantErr: "unsupported PostgreSQL type OID: 1700",
-		},
-		{
 			name:    "unsupported_array_type",
 			query:   "SELECT ARRAY[1,2,3]::int4[]",
 			wantErr: "unsupported PostgreSQL type OID: 1007",

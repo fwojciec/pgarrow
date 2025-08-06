@@ -67,7 +67,7 @@ for reader.Next() {
 
 ## Supported Types <a id="supported-types"></a>
 
-**17 PostgreSQL types** → **Arrow native format**
+**18 PostgreSQL types** → **Arrow native format**
 
 <details>
 <summary>📋 <strong>Full Type Mapping Table</strong></summary>
@@ -81,6 +81,7 @@ for reader.Next() {
 | `int8` / `bigint` | 20 | `Int64` | `int64` |
 | `float4` / `real` | 700 | `Float32` | `float32` |
 | `float8` / `double precision` | 701 | `Float64` | `float64` |
+| `numeric` / `decimal` | 1700 | `String` | `string` |
 | `text` | 25 | `String` | `string` |
 | `varchar` | 1043 | `String` | `string` |
 | `bpchar` / `char(n)` | 1042 | `String` | `string` |
@@ -94,7 +95,7 @@ for reader.Next() {
 
 </details>
 
-✅ Full NULL handling • ✅ Microsecond precision • ✅ Binary data • ✅ Temporal types • ✅ Interval support
+✅ Full NULL handling • ✅ Microsecond precision • ✅ Binary data • ✅ Temporal types • ✅ Interval support • ✅ Arbitrary precision numeric
 
 ---
 
@@ -188,13 +189,13 @@ While developed with rigorous quality processes, this software should be conside
 
 **✅ Ready for experimentation:**
 - Core functionality complete
-- 17 data types supported
+- 18 data types supported
 - Comprehensive test suite
 - Performance benchmarks
 
 **⚠️ Known limits:**
 - Alpha quality - production validation needed
-- Limited to 17 PostgreSQL types currently
+- Limited to 18 PostgreSQL types currently
 - Read-only operations (no write support)
 
 **🎯 Design decisions:**
